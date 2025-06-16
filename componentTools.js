@@ -1,4 +1,5 @@
 import pool from "./db.js";
+import { sanitizeUpdates } from "./sanitizeUpdates.js";
 
 export async function getComponent({ clientId, componentId }) {
 	console.log("🔍 getComponent called with:", { clientId, componentId });
@@ -81,6 +82,21 @@ export async function updateComponent({ clientId, componentId, updates }) {
 					"updates object is required and must contain at least one field to update",
 			};
 		}
+
+		const { sanitized, rejected } = sanitizeUpdates(updates);
+		if (Object.keys(sanitized).length === 0) {
+			console.log("❌ No valid fields to update after sanitization");
+			return {
+				success: false,
+				error: "No valid fields to update",
+				rejectedFields: rejected,
+			};
+		}
+		console.log("🔧 Sanitized updates:", sanitized);
+
+		// Use sanitized updates for the rest of the process
+		updates = sanitized;
+		console.log("🔧 Using sanitized updates:", updates);
 
 		// First check if component exists
 		console.log("🔍 Checking if component exists...");

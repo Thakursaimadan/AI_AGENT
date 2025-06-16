@@ -1,6 +1,7 @@
 import { StateGraph, MessagesAnnotation } from "@langchain/langgraph";
 import { AzureChatOpenAI } from "@langchain/openai";
 import { searchComponent } from "./searchTool.js";
+import { fuse, updateFieldMap } from "./fuseConfig.js";
 import dotenv from "dotenv";
 
 dotenv.config();
@@ -28,6 +29,25 @@ Process:
 Important: Always extract and use the clientId from the user's message. Look for patterns like "client 123", "clientId 123", or "for client 123".
 `;
 
+function normalizeCriteria(rawCriteria = {}) {
+	const normalized = {};
+
+	for (const key in rawCriteria) {
+		const search = fuse.search(key.toLowerCase());
+
+		if (search.length > 0) {
+			const canonical = search[0].item;
+			const mappedField = updateFieldMap[canonical];
+			normalized[mappedField] = rawCriteria[key];
+		} else {
+			console.warn(`⚠️ Unrecognized search key "${key}" – using as-is.`);
+			normalized[key] = rawCriteria[key];
+		}
+	}
+
+	return normalized;
+}
+
 const clarifierLLM = new AzureChatOpenAI({
 	azureOpenAIEndpoint: process.env.AZURE_OPENAI_ENDPOINT,
 	azureOpenAIApiKey: process.env.AZURE_OPENAI_API_KEY,
@@ -47,7 +67,17 @@ async function callClarifierTools(state) {
 
 	const toolMessages = await Promise.all(
 		toolCalls.map(async (toolCall) => {
-			console.log("Args:", toolCall.args);
+			console.log("🔍 Raw Args:", toolCall.args);
+
+			// Normalize criteria before invoking tool
+			if (toolCall.name === "searchComponent") {
+				const raw = toolCall.args;
+				console.log("CallClarifiers args:", raw);
+				const normalizedCriteria = normalizeCriteria(raw.criteria || {});
+				toolCall.args.criteria = normalizedCriteria;
+				console.log("✅ Normalized Criteria:", normalizedCriteria);
+			}
+
 			const toolResult = await searchComponent.invoke(toolCall.args);
 			return {
 				type: "tool",

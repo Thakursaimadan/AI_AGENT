@@ -3,6 +3,8 @@ import { AzureChatOpenAI } from "@langchain/openai";
 import { tool } from "@langchain/core/tools";
 import { z } from "zod";
 import { getComponent, updateComponent } from "./componentTools.js";
+import { fuse, updateFieldMap } from "./fuseConfig.js";
+import { sanitizeUpdates } from "./sanitizeUpdates.js";
 import dotenv from "dotenv";
 
 dotenv.config();
@@ -127,6 +129,35 @@ async function callEditorTools(state) {
 				if (toolCall.name === "getComponent") {
 					toolResult = await getComponent(toolCall.args);
 				} else if (toolCall.name === "updateComponent") {
+					const rawUpdates = toolCall.args.updates || {};
+					const normalized = {};
+
+					const { sanitized, rejected } = sanitizeUpdates(rawUpdates);
+
+					if (rejected.length > 0) {
+						console.warn("⚠️ Rejected fields:", rejected.join(", "));
+					}
+
+					console.log("🔧 Sanitized updates:", sanitized);
+
+					toolCall.args.updates = sanitized;
+					console.log("🔧 Normalizing updates...");
+
+					for (const key in rawUpdates) {
+						const result = fuse.search(key.toLowerCase());
+
+						if (result.length > 0) {
+							const canonical = result[0].item;
+							const mappedKey = updateFieldMap[canonical];
+							normalized[mappedKey] = rawUpdates[key];
+						} else {
+							console.warn(`⚠️ Unrecognized field: "${key}", using as-is.`);
+							normalized[key] = rawUpdates[key];
+						}
+					}
+					toolCall.args.updates = normalized;
+					console.log("🧽 Normalized Updates:", normalized);
+
 					toolResult = await updateComponent(toolCall.args);
 				}
 				console.log("✅ Tool execution successful");
