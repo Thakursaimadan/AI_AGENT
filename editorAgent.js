@@ -1,9 +1,11 @@
-import { StateGraph, MessagesAnnotation } from '@langchain/langgraph';
-import { AzureChatOpenAI } from '@langchain/openai';
-import { tool } from '@langchain/core/tools';
-import { z } from 'zod';
-import { getComponent, updateComponent,addSecurityGroup,removeSecurityGroup, deleteComponent } from './componentTools.js';
-import dotenv from 'dotenv';
+import { StateGraph, MessagesAnnotation } from "@langchain/langgraph";
+import { AzureChatOpenAI } from "@langchain/openai";
+import { tool } from "@langchain/core/tools";
+import { z } from "zod";
+import { getComponent, updateComponent } from "./componentTools.js";
+import { fuse, updateFieldMap } from "./fuseConfig.js";
+import { sanitizeUpdates } from "./sanitizeUpdates.js";
+import dotenv from "dotenv";
 
 dotenv.config();
 
@@ -196,145 +198,164 @@ Remember: Users don't know the database schema. Your job is to bridge natural la
 `;
 
 const getComponentTool = tool(
-  async ({ clientId, componentId }) => {
-    console.log('🔧 getComponentTool called with:', { clientId, componentId });
-    const result = await getComponent({ clientId, componentId });
-    console.log('🔧 getComponentTool result:', result);
-    return result;
-  },
-  {
-    name: "getComponent",
-    description: "Get component data",
-    schema: z.object({
-      clientId: z.string().describe("The client ID"),
-      componentId: z.string().optional().describe("The component ID (optional for listing)")
-    })
-  }
+	async ({ clientId, componentId }) => {
+		console.log("🔧 getComponentTool called with:", { clientId, componentId });
+		const result = await getComponent({ clientId, componentId });
+		console.log("🔧 getComponentTool result:", result);
+		return result;
+	},
+	{
+		name: "getComponent",
+		description: "Get component data",
+		schema: z.object({
+			clientId: z.string().describe("The client ID"),
+			componentId: z
+				.string()
+				.optional()
+				.describe("The component ID (optional for listing)"),
+		}),
+	}
 );
 
 const updateComponentTool = tool(
-  async ({ clientId, componentId, updates }) => {
-    console.log('🔧 updateComponentTool called with:');
-    console.log('  - clientId:', clientId);
-    console.log('  - componentId:', componentId);
-    console.log('  - updates:', updates);
-    console.log('  - updates type:', typeof updates);
-    
-    const result = await updateComponent({ clientId, componentId, updates });
-    console.log('🔧 updateComponentTool result:', result);
-    return result;
-  },
-  {
-    name: "updateComponent",
-    description: "Update component data",
-    schema: z.object({
-      clientId: z.string().describe("The client ID"),
-      componentId: z.string().describe("The component ID"),
-      updates: z.record(z.any()).describe("The updates to apply as key-value pairs")
-    })
-  }
+	async ({ clientId, componentId, updates }) => {
+		console.log("🔧 updateComponentTool called with:");
+		console.log("  - clientId:", clientId);
+		console.log("  - componentId:", componentId);
+		console.log("  - updates:", updates);
+		console.log("  - updates type:", typeof updates);
+
+		const result = await updateComponent({ clientId, componentId, updates });
+		console.log("🔧 updateComponentTool result:", result);
+		return result;
+	},
+	{
+		name: "updateComponent",
+		description: "Update component data",
+		schema: z.object({
+			clientId: z.string().describe("The client ID"),
+			componentId: z.string().describe("The component ID"),
+			updates: z
+				.record(z.any())
+				.describe("The updates to apply as key-value pairs"),
+		}),
+	}
 );
 
 const addSecurityGroupTool = tool(
-  async ({ clientId, componentId, security_group_title }) => {
-    console.log('🔧 addSecurityGroupTool called with:');
-    console.log('  - clientId:', clientId);
-    console.log('  - componentId:', componentId);
-    console.log('  - security_group_title:', security_group_title);
-    const result = await addSecurityGroup({ clientId, componentId, security_group_title });
-    console.log('🔧 addSecurityGroupTool result:', result);
-    
-    return result;
-  },
-  {
-    name: "addSecurityGroup",
-    description: "Add a security group to a component",
-    schema: z.object({
-      clientId: z.string().describe("The client ID"),
-      componentId: z.string().describe("The component ID"),
-      security_group_title: z.string().describe("The security group title")
-    })
-  }
+	async ({ clientId, componentId, security_group_title }) => {
+		console.log("🔧 addSecurityGroupTool called with:");
+		console.log("  - clientId:", clientId);
+		console.log("  - componentId:", componentId);
+		console.log("  - security_group_title:", security_group_title);
+		const result = await addSecurityGroup({
+			clientId,
+			componentId,
+			security_group_title,
+		});
+		console.log("🔧 addSecurityGroupTool result:", result);
+
+		return result;
+	},
+	{
+		name: "addSecurityGroup",
+		description: "Add a security group to a component",
+		schema: z.object({
+			clientId: z.string().describe("The client ID"),
+			componentId: z.string().describe("The component ID"),
+			security_group_title: z.string().describe("The security group title"),
+		}),
+	}
 );
 
 const removeSecurityGroupTool = tool(
-  async ({ clientId, componentId, security_group_title }) => {
-    console.log('🔧 removeSecurityGroupTool called with:');
-    console.log('  - clientId:', clientId);
-    console.log('  - componentId:', componentId);
-    console.log('  - security_group_title:', security_group_title);
-    const result = await removeSecurityGroup({ clientId, componentId, security_group_title });
-    console.log('🔧 removeSecurityGroupTool result:', result);
+	async ({ clientId, componentId, security_group_title }) => {
+		console.log("🔧 removeSecurityGroupTool called with:");
+		console.log("  - clientId:", clientId);
+		console.log("  - componentId:", componentId);
+		console.log("  - security_group_title:", security_group_title);
+		const result = await removeSecurityGroup({
+			clientId,
+			componentId,
+			security_group_title,
+		});
+		console.log("🔧 removeSecurityGroupTool result:", result);
 
-    return result;
-  },
-  {
-    name: "removeSecurityGroup",
-    description: "Remove a security group from a component",
-    schema: z.object({
-      clientId: z.string().describe("The client ID"),
-      componentId: z.string().describe("The component ID"),
-      security_group_title: z.string().describe("The security group title")
-    })
-  }
+		return result;
+	},
+	{
+		name: "removeSecurityGroup",
+		description: "Remove a security group from a component",
+		schema: z.object({
+			clientId: z.string().describe("The client ID"),
+			componentId: z.string().describe("The component ID"),
+			security_group_title: z.string().describe("The security group title"),
+		}),
+	}
 );
-    
-const deleteComponentTool = tool(
-  async ({ clientId, componentId }) => {
-    console.log('🔧 deleteComponentTool called with:');
-    console.log('  - clientId:', clientId);
-    console.log('  - componentId:', componentId);
-    const result = await deleteComponent({ clientId, componentId });
-    console.log('🔧 deleteComponentTool result:', result);
 
-    return result;
-  },
-  {
-    name: "deleteComponent",
-    description: "Delete a component",
-    schema: z.object({
-      clientId: z.string().describe("The client ID"),
-      componentId: z.string().describe("The component ID")
-    })
-  }
+const deleteComponentTool = tool(
+	async ({ clientId, componentId }) => {
+		console.log("🔧 deleteComponentTool called with:");
+		console.log("  - clientId:", clientId);
+		console.log("  - componentId:", componentId);
+		const result = await deleteComponent({ clientId, componentId });
+		console.log("🔧 deleteComponentTool result:", result);
+
+		return result;
+	},
+	{
+		name: "deleteComponent",
+		description: "Delete a component",
+		schema: z.object({
+			clientId: z.string().describe("The client ID"),
+			componentId: z.string().describe("The component ID"),
+		}),
+	}
 );
 
 const editorLLM = new AzureChatOpenAI({
-  azureOpenAIEndpoint: process.env.AZURE_OPENAI_ENDPOINT,
-  azureOpenAIApiKey: process.env.AZURE_OPENAI_API_KEY,
-  azureOpenAIApiDeploymentName: "gpt-4o",
-  azureOpenAIApiVersion: "2025-01-01-preview",
-  temperature: 0,
-}).bindTools([getComponentTool, updateComponentTool, addSecurityGroupTool, removeSecurityGroupTool,deleteComponentTool]);
+	azureOpenAIEndpoint: process.env.AZURE_OPENAI_ENDPOINT,
+	azureOpenAIApiKey: process.env.AZURE_OPENAI_API_KEY,
+	azureOpenAIApiDeploymentName: "gpt-4o",
+	azureOpenAIApiVersion: "2025-01-01-preview",
+	temperature: 0,
+}).bindTools([
+	getComponentTool,
+	updateComponentTool,
+	addSecurityGroupTool,
+	removeSecurityGroupTool,
+	deleteComponentTool,
+]);
 
 async function callEditorModel(state) {
-  console.log('🧠 EditorAgent: Processing messages...');
-  console.log('📨 Messages count:', state.messages.length);
-  
-  // Log the last human message for debugging
-  const lastHumanMessage = state.messages
-    .filter(m => m._getType() === 'human')
-    .pop();
-  
-  if (lastHumanMessage) {
-    console.log('💬 Last human message:', lastHumanMessage.content);
-  }
-  
-  const response = await editorLLM.invoke(state.messages);
-  console.log('🤖 EditorAgent LLM response:');
-  console.log('  - Content:', response.content);
-  console.log('  - Tool calls:', response.tool_calls?.length || 0);
-  
-  if (response.tool_calls) {
-    response.tool_calls.forEach((toolCall, index) => {
-      console.log(`  - Tool call ${index + 1}:`, {
-        name: toolCall.name,
-        args: toolCall.args
-      });
-    });
-  }
-  
-  return { messages: [response] };
+	console.log("🧠 EditorAgent: Processing messages...");
+	console.log("📨 Messages count:", state.messages.length);
+
+	// Log the last human message for debugging
+	const lastHumanMessage = state.messages
+		.filter((m) => m._getType() === "human")
+		.pop();
+
+	if (lastHumanMessage) {
+		console.log("💬 Last human message:", lastHumanMessage.content);
+	}
+
+	const response = await editorLLM.invoke(state.messages);
+	console.log("🤖 EditorAgent LLM response:");
+	console.log("  - Content:", response.content);
+	console.log("  - Tool calls:", response.tool_calls?.length || 0);
+
+	if (response.tool_calls) {
+		response.tool_calls.forEach((toolCall, index) => {
+			console.log(`  - Tool call ${index + 1}:`, {
+				name: toolCall.name,
+				args: toolCall.args,
+			});
+		});
+	}
+
+	return { messages: [response] };
 }
 
 async function callEditorTools(state) {
@@ -356,16 +377,6 @@ async function callEditorTools(state) {
           toolResult = await getComponent(toolCall.args);
         } else if (toolCall.name === 'updateComponent') {
           toolResult = await updateComponent(toolCall.args);
-        }
-        else if (toolCall.name === 'addSecurityGroup') {
-          toolResult = await addSecurityGroup(toolCall.args);
-        } else if (toolCall.name === 'removeSecurityGroup') {
-          toolResult = await removeSecurityGroup(toolCall.args);
-        } 
-        else if (toolCall.name === 'deleteComponent') {
-          toolResult = await deleteComponent(toolCall.args);
-        } else {
-          throw new Error(`Unknown tool: ${toolCall.name}`);
         }
         console.log('✅ Tool execution successful');
       } catch (error) {
@@ -391,22 +402,25 @@ async function callEditorTools(state) {
 }
 
 function shouldContinueEditor(state) {
-  const lastMessage = state.messages[state.messages.length - 1];
-  console.log('🤔 EditorAgent should continue? Last message type:', lastMessage.type || lastMessage._getType());
-  
-  if (lastMessage.tool_calls && lastMessage.tool_calls.length > 0) {
-    console.log('➡️ Going to tools');
-    return "tools";
-  }
-  
-  console.log('➡️ Ending');
-  return "__end__";
+	const lastMessage = state.messages[state.messages.length - 1];
+	console.log(
+		"🤔 EditorAgent should continue? Last message type:",
+		lastMessage.type || lastMessage._getType()
+	);
+
+	if (lastMessage.tool_calls && lastMessage.tool_calls.length > 0) {
+		console.log("➡️ Going to tools");
+		return "tools";
+	}
+
+	console.log("➡️ Ending");
+	return "__end__";
 }
 
 export const EditorAgent = new StateGraph(MessagesAnnotation)
-  .addNode("llmCall", callEditorModel)
-  .addNode("tools", callEditorTools)
-  .addEdge("__start__", "llmCall")
-  .addConditionalEdges("llmCall", shouldContinueEditor)
-  .addEdge("tools", "llmCall")
-  .compile();
+	.addNode("llmCall", callEditorModel)
+	.addNode("tools", callEditorTools)
+	.addEdge("__start__", "llmCall")
+	.addConditionalEdges("llmCall", shouldContinueEditor)
+	.addEdge("tools", "llmCall")
+	.compile();

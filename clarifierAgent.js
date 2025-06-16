@@ -1,6 +1,7 @@
 import { StateGraph, MessagesAnnotation } from "@langchain/langgraph";
 import { AzureChatOpenAI } from "@langchain/openai";
 import { searchComponent } from "./searchTool.js";
+import { fuse, updateFieldMap } from "./fuseConfig.js";
 import dotenv from "dotenv";
 
 dotenv.config();
@@ -144,7 +145,17 @@ async function callClarifierTools(state) {
 
 	const toolMessages = await Promise.all(
 		toolCalls.map(async (toolCall) => {
-			console.log("Args:", toolCall.args);
+			console.log("🔍 Raw Args:", toolCall.args);
+
+			// Normalize criteria before invoking tool
+			if (toolCall.name === "searchComponent") {
+				const raw = toolCall.args;
+				console.log("CallClarifiers args:", raw);
+				const normalizedCriteria = normalizeCriteria(raw.criteria || {});
+				toolCall.args.criteria = normalizedCriteria;
+				console.log("✅ Normalized Criteria:", normalizedCriteria);
+			}
+
 			const toolResult = await searchComponent.invoke(toolCall.args);
 			return {
 				type: "tool",
