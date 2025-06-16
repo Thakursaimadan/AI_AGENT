@@ -1,8 +1,8 @@
-import { StateGraph, MessagesAnnotation } from '@langchain/langgraph';
-import { AzureChatOpenAI } from '@langchain/openai';
-import { tool } from '@langchain/core/tools';
-import { z } from 'zod';
-import dotenv from 'dotenv';
+import { StateGraph, MessagesAnnotation } from "@langchain/langgraph";
+import { AzureChatOpenAI } from "@langchain/openai";
+import { tool } from "@langchain/core/tools";
+import { z } from "zod";
+import dotenv from "dotenv";
 
 dotenv.config();
 
@@ -23,33 +23,33 @@ Always call the router tool with the appropriate route.
 `;
 
 const routerTool = tool(
-  async ({ route }) => {
-    return `Routing to: ${route}`;
-  },
-  {
-    name: "router",
-    description: "Route the request to the appropriate agent",
-    schema: z.object({
-      route: z.enum(["editor", "clarify"]).describe("The route to take")
-    })
-  }
+	async ({ route }) => {
+		return `Routing to: ${route}`;
+	},
+	{
+		name: "router",
+		description: "Route the request to the appropriate agent",
+		schema: z.object({
+			route: z.enum(["editor", "clarify"]).describe("The route to take"),
+		}),
+	}
 );
 
 const routerLLM = new AzureChatOpenAI({
-  azureOpenAIEndpoint: process.env.AZURE_OPENAI_ENDPOINT,
-  azureOpenAIApiKey: process.env.AZURE_OPENAI_API_KEY,
-  azureOpenAIApiDeploymentName: "gpt-4o",
-  azureOpenAIApiVersion: "2025-01-01-preview",
-  temperature: 0,
+	azureOpenAIEndpoint: process.env.AZURE_OPENAI_ENDPOINT,
+	azureOpenAIApiKey: process.env.AZURE_OPENAI_API_KEY,
+	azureOpenAIApiDeploymentName: "gpt-4o",
+	azureOpenAIApiVersion: "2025-01-01-preview",
+	temperature: 0,
 }).bindTools([routerTool]);
 
 async function callModel(state) {
-  const response = await routerLLM.invoke(state.messages);
-  return { messages: [response] };
+	const response = await routerLLM.invoke(state.messages);
+	return { messages: [response] };
 }
 
 export const RouterAgent = new StateGraph(MessagesAnnotation)
-  .addNode("llmCall", callModel)
-  .addEdge("__start__", "llmCall")
-  .addEdge("llmCall", "__end__")
-  .compile();
+	.addNode("llmCall", callModel)
+	.addEdge("__start__", "llmCall")
+	.addEdge("llmCall", "__end__")
+	.compile();
