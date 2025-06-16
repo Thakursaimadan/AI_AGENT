@@ -174,230 +174,241 @@ export async function updateComponent({ clientId, componentId, updates }) {
 	}
 }
 
-
-const getSecurityGroupId = async (security_group_title,clientId) => {
-  try {
-    const res = await pool.query(
-      `SELECT security_group_id FROM security_groups 
+const getSecurityGroupId = async (security_group_title, clientId) => {
+	try {
+		const res = await pool.query(
+			`SELECT security_group_id FROM security_groups 
        WHERE client_id = $1 AND security_group_title = $2`,
-      [clientId, security_group_title]
-    );
-    
-    if (res.rows.length === 0) {
-      return null; // No matching security group found
-    }
-    
-    return res.rows[0].security_group_id;
-  } catch (err) {
-    console.error('Error fetching security group ID:', err);
-    throw new Error('Database error while fetching security group ID');
-  }
+			[clientId, security_group_title]
+		);
 
-}
+		if (res.rows.length === 0) {
+			return null; // No matching security group found
+		}
 
-export const addSecurityGroup = async ({clientId,componentId, security_group_title}) => {
-  
+		return res.rows[0].security_group_id;
+	} catch (err) {
+		console.error("Error fetching security group ID:", err);
+		throw new Error("Database error while fetching security group ID");
+	}
+};
 
-  console.log('🔒 addSecurityGroup called with:', { clientId, componentId, security_group_title })
-  if (!clientId || !componentId || !security_group_title) {
-    console.error('❌ Missing required parameters');
-    return {
-      success: false,
-      error: 'clientId, componentId, and security_group_title are required'
-    };
-  }
-  const security_group_id = await getSecurityGroupId(security_group_title,clientId);
-  if (!security_group_id) {
-    console.error('❌ Security group does not exist');
-    return {
-      success: false,
-      error: `Security group with title "${security_group_title}" does not exist for client ${clientId}`
-    };
-  }
-  console.log('✅ Security group found with ID:', security_group_id);
+export const addSecurityGroup = async ({
+	clientId,
+	componentId,
+	security_group_title,
+}) => {
+	console.log("🔒 addSecurityGroup called with:", {
+		clientId,
+		componentId,
+		security_group_title,
+	});
+	if (!clientId || !componentId || !security_group_title) {
+		console.error("❌ Missing required parameters");
+		return {
+			success: false,
+			error: "clientId, componentId, and security_group_title are required",
+		};
+	}
+	const security_group_id = await getSecurityGroupId(
+		security_group_title,
+		clientId
+	);
+	if (!security_group_id) {
+		console.error("❌ Security group does not exist");
+		return {
+			success: false,
+			error: `Security group with title "${security_group_title}" does not exist for client ${clientId}`,
+		};
+	}
+	console.log("✅ Security group found with ID:", security_group_id);
 
-  try {
-    // Check if the component already has this security group
-    const checkRes = await pool.query(
-      `SELECT * FROM component_security_groups 
+	try {
+		// Check if the component already has this security group
+		const checkRes = await pool.query(
+			`SELECT * FROM component_security_groups 
        WHERE component_id = $1 AND security_group_id = $2`,
-      [componentId, security_group_id]
-    );
+			[componentId, security_group_id]
+		);
 
-    if (checkRes.rows.length > 0) {
-      console.log('❌ Security group already exists for this component');
-      return {
-        success: false,
-        error: 'Security group already exists for this component'
-      };
-    }
+		if (checkRes.rows.length > 0) {
+			console.log("❌ Security group already exists for this component");
+			return {
+				success: false,
+				error: "Security group already exists for this component",
+			};
+		}
 
-    // Insert the new security group for the component
-    await pool.query(
-      `INSERT INTO component_security_groups (component_id, security_group_id)
+		// Insert the new security group for the component
+		await pool.query(
+			`INSERT INTO component_security_groups (component_id, security_group_id)
        VALUES ($1, $2)
        ON CONFLICT DO NOTHING`,
-      [componentId, security_group_id]
-    );
+			[componentId, security_group_id]
+		);
 
+		const isSecured = true; // Since we are adding a security group, the component is now secured
 
-    const isSecured = true; // Since we are adding a security group, the component is now secured
+		await pool.query(
+			`UPDATE components SET is_secured = $1 WHERE component_id = $2`,
+			[isSecured, componentId]
+		);
 
-    await pool.query(
-      `UPDATE components SET is_secured = $1 WHERE component_id = $2`,
-      [isSecured, componentId]
-    );
+		console.log("✅ Security group added and is_secured updated");
+		return {
+			success: true,
+			message: "Security group added successfully",
+			is_secured: isSecured,
+		};
+	} catch (err) {
+		console.error("❌ Error adding security group:", err);
+		return {
+			success: false,
+			error: "Failed to add security group",
+			details: err.message,
+		};
+	}
+};
 
-    console.log('✅ Security group added and is_secured updated');
-    return {
-      success: true,
-      message: 'Security group added successfully',
-      is_secured: isSecured
-    };
-  } catch (err) {
-    console.error('❌ Error adding security group:', err);
-    return {
-      success: false,
-      error: 'Failed to add security group',
-      details: err.message
-    };
-  }
-}
+export const removeSecurityGroup = async ({
+	clientId,
+	componentId,
+	security_group_title,
+}) => {
+	console.log("🔒 removeSecurityGroup called with:", {
+		clientId,
+		componentId,
+		security_group_title,
+	});
 
-export const removeSecurityGroup = async ({clientId,componentId, security_group_title}) => {
+	if (!clientId || !componentId || !security_group_title) {
+		console.error("❌ Missing required parameters");
+		return {
+			success: false,
+			error: "clientId, componentId, and security_group_title are required",
+		};
+	}
 
-  console.log('🔒 removeSecurityGroup called with:', { clientId, componentId, security_group_title })
+	const security_group_id = await getSecurityGroupId(
+		security_group_title,
+		clientId
+	);
 
-  if (!clientId || !componentId || !security_group_title) {
-    console.error('❌ Missing required parameters');
-    return {
-      success: false,
-      error: 'clientId, componentId, and security_group_title are required'
-    };
-  }
+	if (!security_group_id) {
+		console.error("❌ Security group does not exist");
+		return {
+			success: false,
+			error: `Security group with title "${security_group_title}" does not exist for client ${clientId}`,
+		};
+	}
+	console.log("✅ Security group found with ID:", security_group_id);
 
-  const security_group_id = await getSecurityGroupId(security_group_title,clientId);
-
-  if (!security_group_id) {
-    console.error('❌ Security group does not exist');
-    return {
-      success: false,
-      error: `Security group with title "${security_group_title}" does not exist for client ${clientId}`
-    };
-  }
-  console.log('✅ Security group found with ID:', security_group_id);
-
-  try {
-    // Check if the component already has this security group
-    const checkRes = await pool.query(
-      `SELECT * FROM component_security_groups 
+	try {
+		// Check if the component already has this security group
+		const checkRes = await pool.query(
+			`SELECT * FROM component_security_groups 
        WHERE component_id = $1 AND security_group_id = $2`,
-      [componentId, security_group_id]
-    );
+			[componentId, security_group_id]
+		);
 
-    if (checkRes.rows.length == 0) {
-      console.log('❌ Security group does not exist for this component');
-      return {
-        success: false,
-        error: 'Security group does not exist for this component'
-      };
-    }
+		if (checkRes.rows.length == 0) {
+			console.log("❌ Security group does not exist for this component");
+			return {
+				success: false,
+				error: "Security group does not exist for this component",
+			};
+		}
 
-    // Delete the security group for the component
-    await pool.query(
-      `DELETE FROM component_security_groups 
+		// Delete the security group for the component
+		await pool.query(
+			`DELETE FROM component_security_groups 
        WHERE component_id = $1 AND security_group_id = $2`,
-      [componentId, security_group_id]
-    );
-    console.log('✅ Security group removed from component');
-    // Check if the component has any other security groups
-    const remainingGroups = await pool.query(
-      `SELECT * FROM component_security_groups 
+			[componentId, security_group_id]
+		);
+		console.log("✅ Security group removed from component");
+		// Check if the component has any other security groups
+		const remainingGroups = await pool.query(
+			`SELECT * FROM component_security_groups 
        WHERE component_id = $1`,
-      [componentId]
-    );
-    if (remainingGroups.rows.length === 0) {
-      // If no other security groups, set is_secured to false
-      await pool.query(
-        `UPDATE components SET is_secured = $1 WHERE component_id = $2`,
-        [false, componentId]
-      );
-      console.log('✅ Component is no longer secured');
-    }
-    else {
-      // If there are still security groups, keep is_secured as true
-      await pool.query(
-        `UPDATE components SET is_secured = $1 WHERE component_id = $2`,
-        [true, componentId]
-      );
-      console.log('✅ Component remains secured');
-    }
+			[componentId]
+		);
+		if (remainingGroups.rows.length === 0) {
+			// If no other security groups, set is_secured to false
+			await pool.query(
+				`UPDATE components SET is_secured = $1 WHERE component_id = $2`,
+				[false, componentId]
+			);
+			console.log("✅ Component is no longer secured");
+		} else {
+			// If there are still security groups, keep is_secured as true
+			await pool.query(
+				`UPDATE components SET is_secured = $1 WHERE component_id = $2`,
+				[true, componentId]
+			);
+			console.log("✅ Component remains secured");
+		}
 
-    return {
-      success: true,
-      message: 'Security group removed successfully',
-      is_secured: remainingGroups.rows.length > 0 // Return true if there are still security groups
-    };
-  } catch (err) {
-    console.error('❌ Error removing security group:', err);
-    return {
-      success: false,
-      error: 'Failed to remove security group',
-      details: err.message
-    };
-  }
-}
+		return {
+			success: true,
+			message: "Security group removed successfully",
+			is_secured: remainingGroups.rows.length > 0, // Return true if there are still security groups
+		};
+	} catch (err) {
+		console.error("❌ Error removing security group:", err);
+		return {
+			success: false,
+			error: "Failed to remove security group",
+			details: err.message,
+		};
+	}
+};
 
-
-export const deleteComponent=async({clientId,componentId})=>{
-
-  try {
-      console.log('🗑️ deleteComponent called with:', { clientId, componentId });
-      if (!clientId || !componentId) {
-        console.error('❌ Missing required parameters');
-        return {
-          success: false,
-          error: 'clientId and componentId are required'
-        };
-      }
-      // Check if the component exists
-      const checkRes = await pool.query(
-        `SELECT * FROM components WHERE client_id = $1 AND component_id = $2`,
-        [clientId, componentId]
-      );
-      if (checkRes.rows.length === 0) {
-        console.error('❌ Component not found');
-        return {
-          success: false,
-          error: `Component with ID ${componentId} not found for client ${clientId}`
-        };
-      }
-      // Proceed to delete the component
-      console.log('✅ Component found, proceeding to delete...');
-      const result = await pool.query(
-        `DELETE FROM components WHERE component_id = $1`,
-        [ componentId ]
-      );
-      if (!result.rowCount) 
-        {
-        console.error('❌ Component deletion failed');
-        return {
-          success: false,
-          error: 'Failed to delete component'
-        };
-      }
-      console.log('✅ Component deleted successfully');
-      return {
-        success: true,
-        message: `Component with ID ${componentId} deleted successfully`
-      };
-      
-    } catch (err) {
-      console.error("Error deleting component:", err);
-      return {
-        success: false,
-        error: "Internal Server Error",
-        message: err.message
-      };
-    }
-}
+export const deleteComponent = async ({ clientId, componentId }) => {
+	try {
+		console.log("🗑️ deleteComponent called with:", { clientId, componentId });
+		if (!clientId || !componentId) {
+			console.error("❌ Missing required parameters");
+			return {
+				success: false,
+				error: "clientId and componentId are required",
+			};
+		}
+		// Check if the component exists
+		const checkRes = await pool.query(
+			`SELECT * FROM components WHERE client_id = $1 AND component_id = $2`,
+			[clientId, componentId]
+		);
+		if (checkRes.rows.length === 0) {
+			console.error("❌ Component not found");
+			return {
+				success: false,
+				error: `Component with ID ${componentId} not found for client ${clientId}`,
+			};
+		}
+		// Proceed to delete the component
+		console.log("✅ Component found, proceeding to delete...");
+		const result = await pool.query(
+			`DELETE FROM components WHERE component_id = $1`,
+			[componentId]
+		);
+		if (!result.rowCount) {
+			console.error("❌ Component deletion failed");
+			return {
+				success: false,
+				error: "Failed to delete component",
+			};
+		}
+		console.log("✅ Component deleted successfully");
+		return {
+			success: true,
+			message: `Component with ID ${componentId} deleted successfully`,
+		};
+	} catch (err) {
+		console.error("Error deleting component:", err);
+		return {
+			success: false,
+			error: "Internal Server Error",
+			message: err.message,
+		};
+	}
+};

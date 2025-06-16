@@ -2,7 +2,13 @@ import { StateGraph, MessagesAnnotation } from "@langchain/langgraph";
 import { AzureChatOpenAI } from "@langchain/openai";
 import { tool } from "@langchain/core/tools";
 import { z } from "zod";
-import { getComponent, updateComponent } from "./componentTools.js";
+import {
+	getComponent,
+	updateComponent,
+	addSecurityGroup,
+	deleteComponent,
+	removeSecurityGroup,
+} from "./componentTools.js";
 import { fuse, updateFieldMap } from "./fuseConfig.js";
 import { sanitizeUpdates } from "./sanitizeUpdates.js";
 import dotenv from "dotenv";
@@ -359,46 +365,82 @@ async function callEditorModel(state) {
 }
 
 async function callEditorTools(state) {
-  console.log('🛠️ EditorAgent: Calling tools...');
-  
-  const lastMessage = state.messages[state.messages.length - 1];
-  const toolCalls = lastMessage.tool_calls || [];
-  
-  console.log('🔧 Tool calls found:', toolCalls.length);
-  
-  const toolMessages = await Promise.all(
-    toolCalls.map(async (toolCall) => {
-      console.log('⚡ Executing tool:', toolCall.name);
-      console.log('⚡ Tool args:', toolCall.args);
-      
-      let toolResult;
-      try {
-        if (toolCall.name === 'getComponent') {
-          toolResult = await getComponent(toolCall.args);
-        } else if (toolCall.name === 'updateComponent') {
-          toolResult = await updateComponent(toolCall.args);
-        }
-        console.log('✅ Tool execution successful');
-      } catch (error) {
-        console.error('❌ Tool execution failed:', error);
-        toolResult = {
-          success: false,
-          error: 'Tool execution failed',
-          details: error.message
-        };
-      }
-      
-      return {
-        type: "tool",
-        tool_call_id: toolCall.id,
-        name: toolCall.name,
-        content: JSON.stringify(toolResult)
-      };
-    })
-  );
-  
-  console.log('📝 Tool messages created:', toolMessages.length);
-  return { messages: toolMessages };
+	console.log("🛠️ EditorAgent: Calling tools...");
+
+	const lastMessage = state.messages[state.messages.length - 1];
+	const toolCalls = lastMessage.tool_calls || [];
+
+	console.log("🔧 Tool calls found:", toolCalls.length);
+
+	const toolMessages = await Promise.all(
+		toolCalls.map(async (toolCall) => {
+			console.log("⚡ Executing tool:", toolCall.name);
+			console.log("⚡ Tool args:", toolCall.args);
+
+			let toolResult;
+			try {
+				if (toolCall.name === "getComponent") {
+					toolResult = await getComponent(toolCall.args);
+				} else if (toolCall.name === "updateComponent") {
+					const rawUpdates = toolCall.args.updates || {};
+					const normalized = {};
+
+					const { sanitized, rejected } = sanitizeUpdates(rawUpdates);
+
+					if (rejected.length > 0) {
+						console.warn("⚠️ Rejected fields:", rejected.join(", "));
+					}
+
+					console.log("🔧 Sanitized updates:", sanitized);
+
+					toolCall.args.updates = sanitized;
+					console.log("🔧 Normalizing updates...");
+
+					for (const key in rawUpdates) {
+						const result = fuse.search(key.toLowerCase());
+
+						if (result.length > 0) {
+							const canonical = result[0].item;
+							const mappedKey = updateFieldMap[canonical];
+							normalized[mappedKey] = rawUpdates[key];
+						} else {
+							console.warn(`⚠️ Unrecognized field: "${key}", using as-is.`);
+							normalized[key] = rawUpdates[key];
+						}
+					}
+					toolCall.args.updates = normalized;
+					console.log("🧽 Normalized Updates:", normalized);
+					toolResult = await updateComponent(toolCall.args);
+				} else if (toolCall.name === "addSecurityGroup") {
+					toolResult = await addSecurityGroup(toolCall.args);
+				} else if (toolCall.name === "removeSecurityGroup") {
+					toolResult = await removeSecurityGroup(toolCall.args);
+				} else if (toolCall.name === "deleteComponent") {
+					toolResult = await deleteComponent(toolCall.args);
+				} else {
+					throw new Error(`Unknown tool: ${toolCall.name}`);
+				}
+				console.log("✅ Tool execution successful");
+			} catch (error) {
+				console.error("❌ Tool execution failed:", error);
+				toolResult = {
+					success: false,
+					error: "Tool execution failed",
+					details: error.message,
+				};
+			}
+
+			return {
+				type: "tool",
+				tool_call_id: toolCall.id,
+				name: toolCall.name,
+				content: JSON.stringify(toolResult),
+			};
+		})
+	);
+
+	console.log("📝 Tool messages created:", toolMessages.length);
+	return { messages: toolMessages };
 }
 
 function shouldContinueEditor(state) {

@@ -125,6 +125,24 @@ User: "delete component but I'm not sure which one"
 Remember: Your job is to find the COMPONENT the user wants to work with. When in doubt, offer to show all components!
 `;
 
+function normalizeCriteria(rawCriteria = {}) {
+	const normalized = {};
+
+	for (const key in rawCriteria) {
+		const search = fuse.search(key.toLowerCase());
+
+		if (search.length > 0) {
+			const canonical = search[0].item;
+			const mappedField = updateFieldMap[canonical];
+			normalized[mappedField] = rawCriteria[key];
+		} else {
+			console.warn(`⚠️ Unrecognized search key "${key}" – using as-is.`);
+			normalized[key] = rawCriteria[key];
+		}
+	}
+
+	return normalized;
+}
 
 const clarifierLLM = new AzureChatOpenAI({
 	azureOpenAIEndpoint: process.env.AZURE_OPENAI_ENDPOINT,
@@ -147,7 +165,7 @@ async function callClarifierTools(state) {
 		toolCalls.map(async (toolCall) => {
 			console.log("🔍 Raw Args:", toolCall.args);
 
-			// Normalize criteria before invoking tool
+			// Normalize criteria before invoking tool args:
 			if (toolCall.name === "searchComponent") {
 				const raw = toolCall.args;
 				console.log("CallClarifiers args:", raw);
