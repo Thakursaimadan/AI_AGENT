@@ -112,7 +112,7 @@ export async function updateComponent({ clientId, componentId, updates }) {
                 // Handle nested JSON updates (e.g., props.title)
                 const [column, jsonKey] = key.split('.');
                 setClauses.push(
-                    `${column} = jsonb_set(COALESCE(${column}, '{}'::jsonb), '{${jsonKey}}', $${idx}::jsonb)`
+                    `${column} = jsonb_set(COALESCE(${column}, '{}'::jsonb), '{${jsonKey}}', $${idx}::jsonb, true)`
                 );
                 values.push(JSON.stringify(value));
                 console.log(

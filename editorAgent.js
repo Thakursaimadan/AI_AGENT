@@ -114,26 +114,6 @@ Then STOP processing - DO NOT attempt the operation. The supervisor will route t
 
 ## OPERATION EXAMPLES:
 
-### UPDATE Examples:
-User: "update link to facebook.com" 
-→ Parse: link = facebook.com
-→ Map: link → link_props.url  
-→ Result: {"link_props": {"url": "facebook.com"}}
-
-User: "change title to Hello World"
-→ Parse: title = Hello World
-→ Map: title → props.title
-→ Result: {"props": {"title": "Hello World"}}
-
-User: "set text alignment to center"
-→ Parse: text alignment = center  
-→ Map: text alignment → layout_props.textalignment
-→ Result: {"layout_props": {"textalignment": "center"}}
-
-User: "make card color blue"
-→ Parse: card color = blue
-→ Map: card color → properties.cardcolor (manual_edits table)
-→ Result: {"properties": {"cardcolor": "blue"}}
 
 ### DELETE Examples:
 User: "delete component 123"
