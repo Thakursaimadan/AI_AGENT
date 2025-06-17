@@ -8,6 +8,7 @@ import {
 	addSecurityGroup,
 	deleteComponent,
 	removeSecurityGroup,
+	addComponent,
 } from "./componentTools.js";
 import { fuse, updateFieldMap } from "./fuseConfig.js";
 import { sanitizeUpdates } from "./sanitizeUpdates.js";
@@ -31,7 +32,7 @@ Manual edits table:
 - properties (JSONB): {style, radius, cardcolor, cardColor, font, textcolor, textColor, backgroundColor}
 
 ## OPERATION TYPES:
-1. **CREATE**: Add new components (if supported)
+1. **CREATE**: Add new components (now supported)
 2. **READ**: Get component data
 3. **UPDATE**: Modify existing component fields
 4. **DELETE**: Remove components permanently
@@ -80,11 +81,15 @@ You must map user-friendly terms to actual schema fields. Use this mapping logic
 3. **If missing critical info**: STOP and request ClarifierAgent assistance
 4. **If all info available**: Proceed with operation
 5. **Map natural language** to schema fields using the above mappings
-6. **Build appropriate request** (update object, deletion, security group operation)
+6. **Build appropriate request** (update object, creation payload, deletion, security group operation)
 7. **Execute operation** and provide detailed feedback
 
 ## REQUIRED INFORMATION CHECK:
-Before proceeding with any operation, verify you have:
+
+### For CREATE operations:
+- ✅ clientId
+- ✅ component_type
+- ✅ Optional: props, link_props, layout_props, etc.
 
 ### For UPDATE operations:
 - ✅ clientId
@@ -106,33 +111,22 @@ Before proceeding with any operation, verify you have:
 - ✅ clientId
 - ✅ componentId (optional for listing all components)
 
+## CREATE OPERATION EXAMPLES:
+
+User: "Add a banner with the title Welcome"
+→ Operation = CREATE  
+→ Fields mapped: component_type = "banner", props.title = "Welcome"
+→ Required: clientId, componentId, payload
+
+User: "Create a new card with description 'My Profile'"  
+→ Operation = CREATE  
+→ Mapped fields: component_type = "card", props.description = "My Profile"
+
 ## MISSING INFORMATION HANDLING:
 If ANY required parameter is missing, respond with:
 "I need more information to complete this operation. Let me help you identify the component you're working with."
 
-Then STOP processing - DO NOT attempt the operation. The supervisor will route to ClarifierAgent.
-
-## OPERATION EXAMPLES:
-
-
-### DELETE Examples:
-User: "delete component 123"
-→ Parse: operation = delete, componentId = 123
-→ Execute: deleteComponent(clientId, "123")
-
-User: "remove my card component"
-→ Parse: operation = delete, description = "card component"
-→ Missing: specific componentId
-→ Response: "I need more information to complete this operation..."
-
-### SECURITY GROUP Examples:
-User: "add premium security group"
-→ Parse: operation = add security group, name = "premium"
-→ Execute: addSecurityGroup(clientId, componentId, "premium")
-
-User: "remove admin security group"
-→ Parse: operation = remove security group, name = "admin"  
-→ Execute: removeSecurityGroup(clientId, componentId, "admin")
+Then STOP processing - DO NOT attempt the operation.
 
 ## RESPONSIBILITIES:
 1. **Parameter Validation**: Always check for required parameters before proceeding
@@ -142,21 +136,10 @@ User: "remove admin security group"
 5. **Error Handling**: Provide clear feedback when operations fail
 6. **Clarification Requests**: Request help when information is missing
 
-## SECURITY GROUP OPERATIONS:
-- "add security group [name]" → addSecurityGroup with security_group_title
-- "remove/delete security group [name]" → removeSecurityGroup with security_group_title
-- Handle duplicate/non-existent group scenarios
-
-## DELETE OPERATIONS:
-- "delete component [id]" → deleteComponent with specific ID
-- "remove component [id]" → deleteComponent with specific ID
-- "destroy component [id]" → deleteComponent with specific ID
-- Always confirm deletion was successful
-- Handle component not found scenarios
-
 ## ERROR SCENARIOS:
 - Missing clientId: "I need your client ID to perform this operation"
 - Missing componentId: "I need more information to complete this operation. Let me help you identify the component you're working with."
+- Missing component_type (for create): "Please specify the type of component you want to create"
 - Unrecognized field: "I couldn't identify which field you want to update. Could you be more specific?"
 - Invalid value: "The value provided doesn't match the expected format for this field"
 - Database errors: "There was an issue with the database operation. Please try again later."
@@ -175,11 +158,18 @@ Always provide:
 2. **Exact Operation Matching**: Match user's exact words to operations:
    - "delete component" = DELETE operation (not security group removal)
    - "remove security group" = SECURITY operation  
+   - "create component" = CREATE operation
    - "update title" = UPDATE operation
 3. **Required Information**: If you don't have all required information (clientId + componentId for most operations), IMMEDIATELY respond with a clarification request and STOP processing.
 4. **Single Operation Focus**: Process only the current user request, ignore previous operations from conversation history.
-5. **Once Confirm Operation**: First, summarize the operation to be performed, ask the user confirmation If the user confirms, proceed with the operation.
+5. **Once Confirm Operation**: First, summarize the operation to be performed, ask the user for confirmation. If the user confirms, proceed with the operation.
 ## OPERATION KEYWORDS:
+Recognize keywords like:
+- "create", "add", "make", "insert" → CREATE
+- "update", "change", "edit", "modify" → UPDATE
+- "delete", "remove", "destroy" → DELETE
+- "secure", "add to group", "remove from group" → SECURITY
+
 Remember: Users don't know the database schema. Your job is to bridge natural language to technical implementation seamlessly while ensuring all required information is available before proceeding.
 `;
 
@@ -200,6 +190,59 @@ const getComponentTool = tool(
 				.optional()
 				.describe("The component ID (optional for listing)"),
 		}),
+	}
+);
+
+const addComponentTool = tool(
+	async ({ clientId, componentId, updates }) => {
+		console.log("🔧 addComponentTool called with:");
+		console.log("  - clientId:", clientId);
+		console.log("  - componentId:", componentId);
+		console.log("  - payload:", updates);
+		const result = await addComponent({
+			clientId,
+			componentId,
+			updates,
+		});
+		console.log("🔧 addComponentTool result:", result);
+		return result;
+	},
+	{
+		name: "addComponent",
+		description: "Create a new component with given data",
+		schema: z
+			.object({
+				clientId: z.string().describe("Client ID"),
+				updates: z
+					.object({
+						component_type: z.string().describe("Type of the component"),
+						props: z
+							.object({
+								title: z.string().optional(),
+								caption: z.string().optional(),
+								subtitle: z.string().optional(),
+								description: z.string().optional(),
+								text: z.string().optional(),
+							})
+							.optional()
+							.describe("Content properties of the component"),
+						link_props: z
+							.object({
+								url: z.string().optional(),
+							})
+							.optional()
+							.describe("Link properties of the component"),
+						layout_props: z
+							.object({
+								textalignment: z.string().optional(),
+							})
+							.optional()
+							.describe("Layout properties of the component"),
+					})
+					.describe("Payload containing component data"),
+				// Add any other necessary fields here
+			})
+			.describe("Payload for creating a new component"),
 	}
 );
 
@@ -312,6 +355,7 @@ const editorLLM = new AzureChatOpenAI({
 	addSecurityGroupTool,
 	removeSecurityGroupTool,
 	deleteComponentTool,
+	addComponentTool,
 ]);
 
 async function callEditorModel(state) {
@@ -397,6 +441,8 @@ async function callEditorTools(state) {
 					toolResult = await removeSecurityGroup(toolCall.args);
 				} else if (toolCall.name === "deleteComponent") {
 					toolResult = await deleteComponent(toolCall.args);
+				} else if (toolCall.name === "addComponent") {
+					toolResult = await addComponent(toolCall.args);
 				} else {
 					throw new Error(`Unknown tool: ${toolCall.name}`);
 				}

@@ -5,7 +5,11 @@ export const updateFieldMap = {
 	title: "props.title",
 	heading: "props.title",
 	"main heading": "props.title",
-	
+
+	caption: "props.caption",
+	subtitle: "props.subtitle",
+	description: "props.description",
+
 	// link_props
 	url: "link_props.url",
 	link: "link_props.url",
@@ -21,8 +25,8 @@ export const updateFieldMap = {
 };
 
 export const fuse = new Fuse(Object.keys(updateFieldMap), {
+	threshold: 0.3,
 	includeScore: true,
-	threshold: 0.4,
 });
 
 // export default fuse;

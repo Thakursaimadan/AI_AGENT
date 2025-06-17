@@ -44,117 +44,213 @@ export async function getComponent({ clientId, componentId }) {
 	}
 }
 
+export const addComponent = async ({ clientId, updates }) => {
+	console.log("\n🧱 Called addComponent...\n");
+	console.log("ClientId:", clientId);
+	console.log("Payload:", updates);
+
+	try {
+		if (!clientId) {
+			console.log("❌ Missing required field: clientId");
+			return {
+				success: false,
+				error: "clientId is required",
+			};
+		}
+
+		// Extract component_type before sanitization
+		const componentType = updates.component_type;
+		if (!componentType) {
+			console.log("❌ Missing required field: component_type");
+			return {
+				success: false,
+				error: "component_type is required",
+			};
+		}
+
+		// Sanitize remaining fields (excluding component_type)
+		const { sanitized, rejected } = sanitizeUpdates(updates);
+		if (Object.keys(sanitized).length === 0) {
+			console.log("❌ No valid fields to insert after sanitization");
+			return {
+				success: false,
+				error: "No valid fields to insert",
+				rejectedFields: rejected,
+			};
+		}
+		console.log("🔧 Sanitized updates:", sanitized);
+
+		// Prepare insert parts
+		const columns = ["client_id", "component_type"];
+		const values = [clientId, componentType];
+		const placeholders = ["$1", "$2"];
+		let idx = 3;
+
+		console.log("🔧 Building insert query...");
+		for (const [key, value] of Object.entries(sanitized)) {
+			console.log(`  - Processing field: ${key} =`, value);
+			columns.push(key);
+
+			// If it's an object (likely JSONB), stringify it
+			if (typeof value === "object" && value !== null) {
+				values.push(JSON.stringify(value));
+			} else {
+				values.push(value);
+			}
+			placeholders.push(`$${idx}`);
+			idx++;
+		}
+
+		const sql = `
+			INSERT INTO components (${columns.join(", ")})
+			VALUES (${placeholders.join(", ")})
+			RETURNING *
+		`;
+
+		console.log("📋 Final SQL:", sql);
+		console.log("📋 SQL values:", values);
+		const { rows } = await pool.query(sql, values);
+
+		console.log("✅ Component created successfully:", rows[0]);
+		return {
+			success: true,
+			message: `Component created successfully`,
+			component: rows[0],
+		};
+	} catch (err) {
+		console.error("❌ Failed to create component:", err);
+		return {
+			success: false,
+			error: "Failed to create component",
+			details: err.message,
+		};
+	}
+};
+
 export async function updateComponent({ clientId, componentId, updates }) {
-    console.log("🔄 updateComponent called with:");
-    console.log("  - clientId:", clientId);
-    console.log("  - componentId:", componentId);
-    console.log("  - updates:", updates);
-    console.log("  - updates type:", typeof updates);
-    console.log("  - updates is null/undefined:", updates == null);
+	console.log("🔄 updateComponent called with:");
+	console.log("  - clientId:", clientId);
+	console.log("  - componentId:", componentId);
+	console.log("  - updates:", updates);
+	console.log("  - updates type:", typeof updates);
+	console.log("  - updates is null/undefined:", updates == null);
 
-    try {
-        // Validate required parameters
-        if (!clientId) {
-            console.log("❌ Missing clientId");
-            return { success: false, error: "clientId is required" };
-        }
-        if (!componentId) {
-            console.log("❌ Missing componentId");
-            return { success: false, error: "componentId is required" };
-        }
-        if (!updates || typeof updates !== "object" || Object.keys(updates).length === 0) {
-            console.log("❌ Invalid or empty updates object");
-            return {
-                success: false,
-                error: "updates object is required and must contain at least one field to update",
-            };
-        }
+	try {
+		// Validate required parameters
+		if (!clientId) {
+			console.log("❌ Missing clientId");
+			return { success: false, error: "clientId is required" };
+		}
+		if (!componentId) {
+			console.log("❌ Missing componentId");
+			return { success: false, error: "componentId is required" };
+		}
+		if (
+			!updates ||
+			typeof updates !== "object" ||
+			Object.keys(updates).length === 0
+		) {
+			console.log("❌ Invalid or empty updates object");
+			return {
+				success: false,
+				error:
+					"updates object is required and must contain at least one field to update",
+			};
+		}
 
-        const { sanitized, rejected } = sanitizeUpdates(updates);
-        if (Object.keys(sanitized).length === 0) {
-            console.log("❌ No valid fields to update after sanitization");
-            return { success: false, error: "No valid fields to update", rejectedFields: rejected };
-        }
-        console.log("🔧 Sanitized updates:", sanitized);
-        updates = sanitized;
+		const { sanitized, rejected } = sanitizeUpdates(updates);
+		if (Object.keys(sanitized).length === 0) {
+			console.log("❌ No valid fields to update after sanitization");
+			return {
+				success: false,
+				error: "No valid fields to update",
+				rejectedFields: rejected,
+			};
+		}
+		console.log("🔧 Sanitized updates:", sanitized);
+		updates = sanitized;
 
-        // Check if component exists
-        const checkSql =
-            "SELECT component_id FROM components WHERE client_id = $1 AND component_id = $2";
-        const { rows: existingRows } = await pool.query(checkSql, [clientId, componentId]);
-        if (existingRows.length === 0) {
-            console.log("❌ Component does not exist");
-            return { success: false, error: `Component with ID ${componentId} not found for client ${clientId}` };
-        }
+		// Check if component exists
+		const checkSql =
+			"SELECT component_id FROM components WHERE client_id = $1 AND component_id = $2";
+		const { rows: existingRows } = await pool.query(checkSql, [
+			clientId,
+			componentId,
+		]);
+		if (existingRows.length === 0) {
+			console.log("❌ Component does not exist");
+			return {
+				success: false,
+				error: `Component with ID ${componentId} not found for client ${clientId}`,
+			};
+		}
 
-        console.log("✅ Component exists, proceeding with update...");
+		console.log("✅ Component exists, proceeding with update...");
 
-        // Build dynamic update query
-        const setClauses = [];
-        const values = [clientId, componentId];
-        let idx = 3;
+		// Build dynamic update query
+		const setClauses = [];
+		const values = [clientId, componentId];
+		let idx = 3;
 
-        console.log("🔧 Building update query...");
-        for (const [key, value] of Object.entries(updates)) {
-            console.log(`  - Processing field: ${key} = ${value}`);
+		console.log("🔧 Building update query...");
+		for (const [key, value] of Object.entries(updates)) {
+			console.log(`  - Processing field: ${key} = ${value}`);
 
-            // If updating JSONB 'props' with an object, merge instead of replace
-            if (key === 'props' && typeof value === 'object') {
-                setClauses.push(
-                    `props = COALESCE(props, '{}'::jsonb) || $${idx}::jsonb`
-                );
-                values.push(JSON.stringify(value));
-                console.log(
-                    `    - JSONB merge update: props || ${JSON.stringify(value)}`
-                );
+			// If updating JSONB 'props' with an object, merge instead of replace
+			if (key === "props" && typeof value === "object") {
+				setClauses.push(
+					`props = COALESCE(props, '{}'::jsonb) || $${idx}::jsonb`
+				);
+				values.push(JSON.stringify(value));
+				console.log(
+					`    - JSONB merge update: props || ${JSON.stringify(value)}`
+				);
+			} else if (key.includes(".")) {
+				// Handle nested JSON updates (e.g., props.title)
+				const [column, jsonKey] = key.split(".");
+				setClauses.push(
+					`${column} = jsonb_set(COALESCE(${column}, '{}'::jsonb), '{${jsonKey}}', $${idx}::jsonb, true)`
+				);
+				values.push(JSON.stringify(value));
+				console.log(
+					`    - JSON update: ${column}.${jsonKey} = ${JSON.stringify(value)}`
+				);
+			} else {
+				// Direct column update
+				setClauses.push(`${key} = $${idx}`);
+				values.push(value);
+				console.log(`    - Direct update: ${key} = ${value}`);
+			}
+			idx++;
+		}
 
-            } else if (key.includes('.')) {
-                // Handle nested JSON updates (e.g., props.title)
-                const [column, jsonKey] = key.split('.');
-                setClauses.push(
-                    `${column} = jsonb_set(COALESCE(${column}, '{}'::jsonb), '{${jsonKey}}', $${idx}::jsonb, true)`
-                );
-                values.push(JSON.stringify(value));
-                console.log(
-                    `    - JSON update: ${column}.${jsonKey} = ${JSON.stringify(value)}`
-                );
-
-            } else {
-                // Direct column update
-                setClauses.push(`${key} = $${idx}`);
-                values.push(value);
-                console.log(`    - Direct update: ${key} = ${value}`);
-            }
-            idx++;
-        }
-
-        const sql = `
+		const sql = `
             UPDATE components 
-            SET ${setClauses.join(', ')}
+            SET ${setClauses.join(", ")}
             WHERE client_id = $1 AND component_id = $2
             RETURNING *
         `;
 
-        console.log("📋 Final SQL:", sql);
-        console.log("📋 SQL values:", values);
+		console.log("📋 Final SQL:", sql);
+		console.log("📋 SQL values:", values);
 
-        const { rows } = await pool.query(sql, values);
-        console.log("✅ Update successful, returning:", rows[0]);
+		const { rows } = await pool.query(sql, values);
+		console.log("✅ Update successful, returning:", rows[0]);
 
-        return {
-            success: true,
-            message: `Component ${componentId} updated successfully`,
-            component: rows[0],
-        };
-    } catch (error) {
-        console.error("❌ Update component error:", error);
-        console.error("❌ Error stack:", error.stack);
-        return {
-            success: false,
-            error: "Failed to update component",
-            details: error.message,
-        };
-    }
+		return {
+			success: true,
+			message: `Component ${componentId} updated successfully`,
+			component: rows[0],
+		};
+	} catch (error) {
+		console.error("❌ Update component error:", error);
+		console.error("❌ Error stack:", error.stack);
+		return {
+			success: false,
+			error: "Failed to update component",
+			details: error.message,
+		};
+	}
 }
 
 const getSecurityGroupId = async (security_group_title, clientId) => {
