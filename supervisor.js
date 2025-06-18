@@ -1,6 +1,7 @@
 import readline from "readline";
 import { RouterAgent, routerSystemPrompt } from "./routerAgent.js";
 import { EditorAgent, editorSystemPrompt } from "./editorAgent.js";
+import { designAgent, designPrompt } from "./designAgent.js";
 import { ClarifierAgent, clarifierSystemPrompt } from "./clarifierAgent.js";
 import {
 	SystemMessage,
@@ -98,6 +99,28 @@ async function handleInput(text) {
 					? lastAIMessage.content
 					: "No response from editor agent.";
 			}
+		}
+
+		if (route === "design") {
+			const designResult = await designAgent.invoke({
+				messages: [
+					new SystemMessage(designPrompt),
+					...conversation,
+					new HumanMessage({ content: text }),
+				],
+			});
+
+			const lastAIMessage = designResult.messages
+				.filter((m) => m._getType() === "ai")
+				.pop();
+
+			if (lastAIMessage && lastAIMessage.content.includes("Please select")) {
+				pendingOperation = extractOperationDetails(text);
+			}
+
+			return lastAIMessage
+				? lastAIMessage.content
+				: "No response from design agent.";
 		}
 
 		if (route === "clarify") {

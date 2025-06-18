@@ -19,6 +19,12 @@ Route to "clarify" if:
 - User describes a component vaguely (e.g., "update the banner", "change the title")
 - User needs help identifying which component they want to work with
 
+### Route to "design" if:
+- The user talks about color palettes, branding, UI aesthetics, appearance.
+- Requests include “make the background dark”, “update theme”, “change button radius”.
+- They reference colors, visual styles, backgrounds, animations, or look-and-feel.
+
+
 Always call the router tool with the appropriate route.
 `;
 
@@ -30,7 +36,9 @@ const routerTool = tool(
 		name: "router",
 		description: "Route the request to the appropriate agent",
 		schema: z.object({
-			route: z.enum(["editor", "clarify"]).describe("The route to take"),
+			route: z
+				.enum(["editor", "clarify", "design"])
+				.describe("The route to take"),
 		}),
 	}
 );
