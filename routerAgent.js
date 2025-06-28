@@ -19,15 +19,25 @@ Route to "clarify" if:
 - User describes a component vaguely (e.g., "update the banner", "change the title")
 - User needs help identifying which component they want to work with
 
-### Route to "design" if:
-- The user talks about color palettes, branding, UI aesthetics, appearance.
-- Requests include “make the background dark”, “update theme”, “change button radius”.
-- They reference colors, visual styles, backgrounds, animations, or look-and-feel.
+### Route to "design" if the user's request involves visual or styling changes:
+Any of these keywords appear:  
+\`button, card, banner, background, color, palette, layout, spacing, theme, radius, shadow, font\`
 
+#### Few‑Shot Examples
+User: "Change button radius to full"  
+→ Route: design
 
-Always call the router tool with the appropriate route.
+User: "List all cards for client 42"  
+→ Route: editor
+
+User: "Can you suggest a new color palette?"  
+→ Route: design
+
+User: "Update component 123 title to 'Welcome'"  
+→ Route: editor
+
+Always call the router tool with exactly one of: editor, clarify, or design.
 `;
-
 const routerTool = tool(
 	async ({ route }) => {
 		return `Routing to: ${route}`;
