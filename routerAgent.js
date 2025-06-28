@@ -13,15 +13,34 @@ Route to "editor" if:
 - User has specific componentId and wants to perform CRUD operations
 - User wants to list components with a specific clientId
 - User provides all necessary information for direct component manipulation
+- User mentions specific components (links, images, music, etc.)
+- User asks about "components" specifically
 
 Route to "clarify" if:
 - User wants to update/modify components but doesn't specify which component (no componentId)
 - User describes a component vaguely (e.g., "update the banner", "change the title")
 - User needs help identifying which component they want to work with
 
-### Route to "design" if the user's request involves visual or styling changes:
-Any of these keywords appear:  
-\`button, card, banner, background, color, palette, layout, spacing, theme, radius, shadow, font\`
+### Route to "design" if the user's request involves:
+1. **Visual/styling changes**: Any of these keywords appear:  
+   \`button, card, banner, background, color, palette, layout, spacing, theme, radius, shadow, font, style, appearance\`
+
+2. **Design-related requests**: User mentions:
+   - "design", "designs", "designing"
+   - "fetch my design", "get my design", "show my design"
+   - "design configuration", "design settings"
+   - "visual appearance", "look and feel"
+   - "design evaluation", "design analysis"
+   - "I am asking about Design" (explicitly mentions design)
+   - "I asked it to fetch my Design" (explicitly mentions design)
+   - "Show me my design" (explicitly mentions design)
+   - "current design" (explicitly mentions design)
+
+3. **Layout and styling**: User asks about:
+   - Overall webpage appearance
+   - Design templates or themes
+   - Visual styling options
+   - Design recommendations
 
 #### Few‑Shot Examples
 User: "Change button radius to full"  
@@ -35,6 +54,30 @@ User: "Can you suggest a new color palette?"
 
 User: "Update component 123 title to 'Welcome'"  
 → Route: editor
+
+User: "I am asking about Design not components"  
+→ Route: design
+
+User: "I asked it to fetch my Design"  
+→ Route: design
+
+User: "Show me my current design"  
+→ Route: design
+
+User: "What's my current design configuration?"  
+→ Route: design
+
+User: "I want to see my design"  
+→ Route: design
+
+User: "Design not components"  
+→ Route: design
+
+User: "Show me my design for client 6"  
+→ Route: design
+
+User: "Get my design configuration"  
+→ Route: design
 
 Always call the router tool with exactly one of: editor, clarify, or design.
 `;

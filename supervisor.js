@@ -73,10 +73,16 @@ async function handleInput(text) {
 		const aiMessage = routeResult.messages.find((m) => m._getType() === "ai");
 		let route = "editor"; // default
 
+		console.log("🔍 Router response:", aiMessage?.content || "No content");
+		console.log("🔧 Router tool calls:", aiMessage?.tool_calls?.length || 0);
+
 		if (aiMessage && aiMessage.tool_calls && aiMessage.tool_calls.length > 0) {
 			const toolCall = aiMessage.tool_calls[0];
 			route = toolCall.args.route;
+			console.log("🛣️ Router tool call args:", toolCall.args);
 		}
+
+		console.log("🛣️ Router chose route:", route);
 
 		// 2) Delegate based on route
 		if (route === "editor") {
