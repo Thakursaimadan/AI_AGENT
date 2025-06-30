@@ -181,7 +181,7 @@ export const getClientDesign = async (clientId) => {
 			"Background URL:",
 			background_mediaUrl
 		);
-		console.log("sample  -->\n",result.rows[0],"\n")
+		console.log("sample  -->\n", result.rows[0], "\n");
 		return {
 			...result.rows[0],
 			banner_mediaUrl,
@@ -245,6 +245,161 @@ export const updateDesignTool = tool(
 		schema: z.object({
 			clientId: z.string().describe("The client ID"),
 			designUpdates: z.object({}).describe("Design updates to apply"),
+		}),
+	}
+);
+
+const JSONB_FIELDS = [
+	"header_design",
+	"color_palate",
+	"appearance",
+	"page_props",
+	"link_block",
+	"card_block",
+	"desktop_background",
+	"card_design",
+	"button_design",
+	"text_props",
+];
+
+export const updateDesign = async ({ clientId, updates }) => {
+	try {
+		if (!clientId || !updates) {
+			throw new Error("Client ID and updates are required");
+		}
+
+		const setClauses = [];
+		const values = [];
+		let idx = 1;
+
+		for (const field of JSONB_FIELDS) {
+			if (updates[field] !== undefined) {
+				// Merge incoming JSON into existing column
+				setClauses.push(
+					`${field} = COALESCE(${field}, '{}'::jsonb) || $${idx}`
+				);
+				values.push(updates[field]);
+				idx++;
+			}
+		}
+
+		if (setClauses.length === 0) {
+			throw new Error("No valid design fields to update.");
+		}
+
+		// Add WHERE param
+		values.push(clientId);
+
+		const sql = `
+			UPDATE designs
+			SET ${setClauses.join(", ")}
+			WHERE client_id = $${idx}
+			RETURNING *;
+		`;
+
+		try {
+			const { rowCount, rows } = await pool.query(sql, values);
+			if (!rowCount) {
+				throw new Error("Design not found for this client");
+			}
+
+			return {
+				design: rows[0],
+				message: "Design updated successfully.",
+			};
+		} catch (err) {
+			console.error("Error updating design:", err);
+			throw new Error("Failed to update design");
+		}
+	} catch (err) {
+		console.log("Error updating design:", err);
+		throw new Error("Failed to update design");
+	}
+};
+
+export const getQAForClient = async (clientId) => {
+	try {
+		const clientType = await pool.query(
+			"SELECT client_type FROM Client WHERE client_id = $1",
+			[clientId]
+		);
+
+		// console.log("Client type for clientId:", clientId, "is", clientType);
+		if (clientType.length === 0) {
+			throw new Error("Client not found");
+		}
+		const questionQuery = await pool.query(
+			"SELECT question_id, question_text, options FROM Questions WHERE client_type = $1",
+			[clientType.rows[0].client_type]
+		);
+
+		if (questionQuery.rows.length === 0) {
+			throw new Error("No questions found for this client type");
+		}
+
+		const questions = questionQuery.rows.map((row) => ({
+			question_id: row.question_id,
+			question_text: row.question_text,
+			options: row.options || [],
+		}));
+
+		// console.log(
+		// 	"Questions fetched for client type:",
+		// 	clientType.rows[0].client_type
+		// );
+		// console.log("Questions:", questions);
+
+		const answerQuery = await pool.query(
+			"SELECT question_id, chosen_options FROM Answers WHERE client_id = $1",
+			[clientId]
+		);
+
+		// const example = questions.find((q) => q.question_id === 1);
+		// console.log("Example question:", example.question_text);
+
+		// The answers should be mapped to the question text
+		const answers = answerQuery.rows
+			.map((row) => ({
+				question: (
+					questions.find((q) => q.question_id === row.question_id) || {}
+				).question_text,
+				chosen_options: row.chosen_options || [],
+			}))
+			.filter((a) => a.question !== undefined);
+
+		// console.log("Fetched questions and answers for client:", clientId);
+		// console.log("Questions:", questions);
+		// console.log("Answers:", answers);
+		// console.log("Final answers for client:", clientId, answers);
+		return {
+			answers: answers,
+		};
+	} catch (err) {
+		console.error("Error fetching QA for client:", err);
+		throw new Error("Internal server error");
+	}
+};
+
+export const getQAForClientTool = tool(
+	async ({ clientId }) => {
+		try {
+			const qaData = await getQAForClient(clientId);
+			return {
+				success: true,
+				qas: qaData,
+			};
+		} catch (error) {
+			return {
+				success: false,
+				error: error.message,
+			};
+		}
+	},
+	{
+		name: "getQAForClient",
+		description: "Get questions and answers for a specific client",
+		schema: z.object({
+			clientId: z.string().describe("The client ID to get QA for"),
 		}),
 	}
 );
