@@ -9,78 +9,80 @@ dotenv.config();
 export const routerSystemPrompt = `
 You are RouterAgent. Analyze the user's input and determine the appropriate route:
 
-Route to "editor" if:
-- User has specific componentId and wants to perform CRUD operations
-- User wants to list components with a specific clientId
-- User provides all necessary information for direct component manipulation
-- User mentions specific components (links, images, music, etc.)
-- User asks about "components" specifically
+## CRITICAL ROUTING RULES
 
-Route to "clarify" if:
-- User wants to update/modify components but doesn't specify which component (no componentId)
-- User describes a component vaguely (e.g., "update the banner", "change the title")
-- User needs help identifying which component they want to work with
+### Route to "design" if ANY of these conditions match:
 
-### Route to "design" if the user's request involves:
-1. **Visual/styling changes**: Any of these keywords appear:  
-   \`button, card, banner, background, color, palette, layout, spacing, theme, radius, shadow, font, style, appearance\`
+1. **Design Keywords**: Message contains any of these words:
+   - design, designs, designing, layout, appearance, visual, style, styling
+   - button, card, banner, background, color, palette, theme, radius, shadow, font
+   - gradient, solid, stroked, soft-shadow, hard-shadow
+   - classic, compact, banner, imaged (layout types)
+   - social icon, social icons, header
 
-2. **Design-related requests**: User mentions:
-   - "design", "designs", "designing"
-   - "fetch my design", "get my design", "show my design"
-   - "design configuration", "design settings"
-   - "visual appearance", "look and feel"
-   - "design evaluation", "design analysis"
-   - "I am asking about Design" (explicitly mentions design)
-   - "I asked it to fetch my Design" (explicitly mentions design)
-   - "Show me my design" (explicitly mentions design)
-   - "current design" (explicitly mentions design)
+2. **Design Actions**: User wants to:
+   - "change [design element] to [value]"
+   - "show me my design"
+   - "get my design"
+   - "fetch my design"
+   - "see my design"
+   - "current design"
+   - "design configuration"
+   - "design analysis"
+   - "design evaluation"
+   - "design recommendations"
+   - "how would it look"
+   - "visual impact"
 
-3. **Layout and styling**: User asks about:
-   - Overall webpage appearance
-   - Design templates or themes
-   - Visual styling options
-   - Design recommendations
+3. **Design Requests**: User mentions:
+   - Changing visual elements (buttons, cards, colors, etc.)
+   - Design evaluation or analysis
+   - Visual appearance changes
+   - Layout modifications
+   - Style updates
 
-#### Few‑Shot Examples
-User: "Change button radius to full"  
-→ Route: design
+4. **Client ID + Design**: User provides client ID AND mentions design-related terms
 
-User: "List all cards for client 42"  
-→ Route: editor
+### Route to "editor" if:
+- User has specific componentId and wants CRUD operations
+- User wants to list components with specific clientId
+- User mentions specific components (links, images, music) with IDs
+- User asks about "components" specifically with componentId
 
-User: "Can you suggest a new color palette?"  
-→ Route: design
+### Route to "clarify" if:
+- User wants to update components but doesn't specify componentId
+- User describes components vaguely without IDs
+- User needs help identifying components
 
-User: "Update component 123 title to 'Welcome'"  
-→ Route: editor
+## DESIGN DETECTION EXAMPLES
 
-User: "I am asking about Design not components"  
-→ Route: design
+✅ DESIGN ROUTES:
+- "my client Id is 6 i want to change my social icon style to solid how would it look"
+- "i want to change my social icon style to solid"
+- "show me my design for client 6"
+- "change button radius to full"
+- "what's my current design"
+- "design recommendations"
+- "how would this look"
+- "change background to gradient"
+- "update card style"
+- "client 6 design"
 
-User: "I asked it to fetch my Design"  
-→ Route: design
+❌ NOT DESIGN ROUTES:
+- "list components for client 6" (no design keywords)
+- "update component 123 title" (specific component ID)
+- "add new link component" (component operation)
+- "delete component 456" (component operation)
 
-User: "Show me my current design"  
-→ Route: design
-
-User: "What's my current design configuration?"  
-→ Route: design
-
-User: "I want to see my design"  
-→ Route: design
-
-User: "Design not components"  
-→ Route: design
-
-User: "Show me my design for client 6"  
-→ Route: design
-
-User: "Get my design configuration"  
-→ Route: design
+## PRIORITY RULES
+1. If message contains design keywords → design
+2. If message contains componentId → editor
+3. If message is vague about components → clarify
+4. When in doubt about visual/styling → design
 
 Always call the router tool with exactly one of: editor, clarify, or design.
 `;
+
 const routerTool = tool(
 	async ({ route }) => {
 		return `Routing to: ${route}`;
@@ -105,7 +107,41 @@ const routerLLM = new AzureChatOpenAI({
 }).bindTools([routerTool]);
 
 async function callModel(state) {
+	const lastMessage = state.messages[state.messages.length - 1];
+	const userMessage = lastMessage.content.toLowerCase();
+	
+	// Log the message for debugging
+	console.log("🔍 Router analyzing message:", userMessage);
+	
+	// Pre-check for common design patterns to help the LLM
+	const designKeywords = [
+		'design', 'style', 'styling', 'appearance', 'visual', 'layout',
+		'button', 'card', 'banner', 'background', 'color', 'palette',
+		'gradient', 'solid', 'stroked', 'shadow', 'radius', 'theme',
+		'social icon', 'social icons', 'header', 'how would it look',
+		'change', 'update', 'modify'
+	];
+	
+	const hasDesignKeywords = designKeywords.some(keyword => 
+		userMessage.includes(keyword)
+	);
+	
+	const hasComponentId = /component\s*\d+|componentid\s*\d+/i.test(userMessage);
+	
+	console.log("🔍 Router analysis:", {
+		hasDesignKeywords,
+		hasComponentId,
+		message: userMessage.substring(0, 100) + "..."
+	});
+
 	const response = await routerLLM.invoke(state.messages);
+	
+	// Log the routing decision
+	const toolCall = response.tool_calls?.[0];
+	if (toolCall) {
+		console.log("🛣️ Router decision:", toolCall.args.route);
+	}
+	
 	return { messages: [response] };
 }
 
