@@ -1,7 +1,7 @@
 import readline from "readline";
 import { RouterAgent, routerSystemPrompt } from "./routerAgent.js";
 import { EditorAgent, editorSystemPrompt } from "./editorAgent.js";
-import { DesignEvaluationAgent, designPrompt } from "./designAgent.js";
+import { DesignAgent, designPrompt } from "./designAgent.js";
 import { ClarifierAgent, clarifierSystemPrompt } from "./clarifierAgent.js";
 import {
 	SystemMessage,
@@ -108,7 +108,7 @@ async function handleInput(text) {
 		}
 
 		if (route === "design") {
-			const designResult = await DesignEvaluationAgent.invoke({
+			const designResult = await DesignAgent.invoke({
 				messages: [
 					new SystemMessage(designPrompt),
 					...conversation,

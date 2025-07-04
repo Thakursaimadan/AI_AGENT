@@ -125,11 +125,14 @@ export const LAYOUT_DEFINITIONS = {
 	},
 };
 
-export const getClientDesign = async (clientId) => {
+export const getClientDesign = async ({ clientId }) => {
 	if (!clientId) {
 		throw new Error("Client ID is required");
 	}
 	try {
+		// const clientId = parseInt(args.clientId, 10); // ✅ convert to integer
+		// if (isNaN(clientId)) throw new Error("Invalid clientId");
+		console.log("Fetching design for client:", clientId);
 		const result = await pool.query(
 			`SELECT * FROM designs WHERE client_id = $1`,
 			[clientId]
@@ -181,7 +184,7 @@ export const getClientDesign = async (clientId) => {
 			"Background URL:",
 			background_mediaUrl
 		);
-		console.log("sample  -->\n", result.rows[0], "\n");
+		// console.log("sample  -->\n", result.rows[0], "\n");
 		return {
 			...result.rows[0],
 			banner_mediaUrl,
@@ -192,62 +195,6 @@ export const getClientDesign = async (clientId) => {
 		throw new Error("Internal server error");
 	}
 };
-
-export const getClientDesignTool = tool(
-	async ({ clientId }) => {
-		try {
-			const designData = await getClientDesign(clientId);
-			return {
-				success: true,
-				design: designData,
-			};
-		} catch (error) {
-			return {
-				success: false,
-				error: error.message,
-			};
-		}
-	},
-	{
-		name: "getClientDesign",
-		description: "Get the current design configuration for a client",
-		schema: z.object({
-			clientId: z.string().describe("The client ID to get design for"),
-		}),
-	}
-);
-
-export const updateDesignTool = tool(
-	async ({ clientId, designUpdates }) => {
-		try {
-			// TODO: Implement actual design update logic
-			console.log(
-				"Updating design for client:",
-				clientId,
-				"with updates:",
-				designUpdates
-			);
-			return {
-				success: true,
-				message: "Design updated successfully",
-				updates: designUpdates,
-			};
-		} catch (error) {
-			return {
-				success: false,
-				error: error.message,
-			};
-		}
-	},
-	{
-		name: "updateDesign",
-		description: "Update design configuration for a client",
-		schema: z.object({
-			clientId: z.string().describe("The client ID"),
-			designUpdates: z.object({}).describe("Design updates to apply"),
-		}),
-	}
-);
 
 const JSONB_FIELDS = [
 	"header_design",
@@ -317,8 +264,10 @@ export const updateDesign = async ({ clientId, updates }) => {
 	}
 };
 
-export const getQAForClient = async (clientId) => {
+export const getQAForClient = async ({ clientId }) => {
 	try {
+		console.log("Fetching QA for client:", clientId);
+
 		const clientType = await pool.query(
 			"SELECT client_type FROM Client WHERE client_id = $1",
 			[clientId]
@@ -379,27 +328,3 @@ export const getQAForClient = async (clientId) => {
 		throw new Error("Internal server error");
 	}
 };
-
-export const getQAForClientTool = tool(
-	async ({ clientId }) => {
-		try {
-			const qaData = await getQAForClient(clientId);
-			return {
-				success: true,
-				qas: qaData,
-			};
-		} catch (error) {
-			return {
-				success: false,
-				error: error.message,
-			};
-		}
-	},
-	{
-		name: "getQAForClient",
-		description: "Get questions and answers for a specific client",
-		schema: z.object({
-			clientId: z.string().describe("The client ID to get QA for"),
-		}),
-	}
-);

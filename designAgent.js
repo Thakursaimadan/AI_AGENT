@@ -1,28 +1,17 @@
-// Fixed design agent with proper validation and cleaner prompts
 import { StateGraph, MessagesAnnotation } from "@langchain/langgraph";
 import { AzureChatOpenAI } from "@langchain/openai";
-import {
-	getClientDesignTool,
-	getQAForClientTool,
-	updateDesignTool,
-} from "./designTools.js";
-
-import {
-	SystemMessage,
-	HumanMessage,
-	AIMessage,
-} from "@langchain/core/messages";
+import { any, z } from "zod";
 import {
 	getClientDesign,
+	updateDesign,
+	getQAForClient,
 	DESIGN_OPTIONS,
-	OPTION_EXPLANATIONS,
-	LAYOUT_DEFINITIONS,
 } from "./designTools.js";
 import dotenv from "dotenv";
+import { tool } from "@langchain/core/tools";
 
 dotenv.config();
 
-// FIXED: Cleaner, more focused prompt with stronger prohibitions
 export const designPrompt = `
 You are a Design Validation Expert for a web design system. You ONLY work with predefined design options stored in the database.
 
@@ -32,6 +21,7 @@ You are a Design Validation Expert for a web design system. You ONLY work with p
 3. NEVER ask for "component ID" - we only use client ID
 4. NEVER suggest custom CSS or manual styling
 5. If user requests something not in our options, explain it's not available and suggest alternatives
+6. ALWAYS consider the client's onboarding/signup questions and their answers (retrieved via getQAForClient) to personalize or contextualize your recommendations. These questions were answered by the client during signup and provide important context about their preferences, goals, or business type.
 
 ## USER-CONTROLLABLE ELEMENTS (ONLY THESE):
 - Layout: ${DESIGN_OPTIONS.header_layout.join(", ")}
@@ -42,551 +32,172 @@ You are a Design Validation Expert for a web design system. You ONLY work with p
 - Button Style: ${DESIGN_OPTIONS.buttonDesign_Style.join(", ")}
 - Button Radius: ${DESIGN_OPTIONS.buttonDesign_Radius.join(", ")}
 
-
 ## RESPONSE FORMAT:
 For INVALID requests: Show validation error with available options
-For VALID requests: Analyze visual impact using ONLY the controllable elements above
+For VALID requests: Analyze visual impact using ONLY the controllable elements above, and reference the client's onboarding/signup answers if they are relevant to the suggestion.
 For design viewing: Show current configuration
 
 REMEMBER: You can ONLY recommend changes to the elements listed above. Everything else is not user-controllable.
 `;
 
-// Map user-friendly terms to database fields (same as before)
-const fieldMapping = {
-	layout: "header_design.layout",
-	"header layout": "header_design.layout",
-	background: "appearance.background",
-	"card style": "card_design.style",
-	"card radius": "card_design.radius",
-	"card corners": "card_design.radius",
-	"button style": "button_design.style",
-	"button radius": "button_design.radius",
-	"button corners": "button_design.radius",
-	"social icons": "header_design.socialIconStyle",
-	"social icon": "header_design.socialIconStyle",
-	"social icon style": "header_design.socialIconStyle",
-	"social icons style": "header_design.socialIconStyle",
-	"icon style": "header_design.socialIconStyle",
-	icons: "header_design.socialIconStyle",
-};
-
-// Get design options key from field name
-function getOptionsKey(fieldName) {
-	const mappings = {
-		"header_design.layout": "header_layout",
-		"appearance.background": "appearance_background",
-		"card_design.style": "cardDesign_Style",
-		"card_design.radius": "cardDesign_Radius",
-		"button_design.style": "buttonDesign_Style",
-		"button_design.radius": "buttonDesign_Radius",
-		"header_design.socialIconStyle": "header_socialIconStyle",
-	};
-	return mappings[fieldName];
-}
-
-// SAME: Request parsing (keep your existing implementation)
-function parseUserRequest(userMessage) {
-	const message = userMessage.toLowerCase();
-
-	const changePatterns = [
-		{
-			pattern:
-				/(?:change|set|make|update)\s+(?:my\s+)?(.+?)\s+(?:to|from\s+\w+\s+to)\s+(.+?)(?:\s|$)/i,
-			type: "specific_change",
-		},
-		{
-			pattern:
-				/(?:want|need)\s+(?:to\s+)?(?:change|set|make|update)\s+(?:my\s+)?(.+?)\s+(?:to|style\s+to)\s+(.+?)(?:\s|$)/i,
-			type: "specific_change",
-		},
-		{
-			pattern: /(.+?)\s+(?:should\s+be|to\s+be)\s+(.+?)(?:\s|$)/i,
-			type: "specific_change",
-		},
-	];
-
-	for (const { pattern, type } of changePatterns) {
-		const match = userMessage.match(pattern);
-		if (match) {
-			return {
-				type,
-				field: match[1].trim(),
-				value: match[2].trim().replace(/[.,;:!?]+$/, ""),
-				originalRequest: userMessage,
-			};
-		}
+const getClientDesignTool = tool(
+	async ({ clientId }) => {
+		console.log("getClientDesign", clientId);
+		const result = await getClientDesign(clientId);
+		console.log("result", result);
+		return result;
+	},
+	{
+		name: "getClientDesign",
+		description: "Get the current design for a client",
+		schema: z.object({
+			clientId: z.string().describe("The client ID"),
+		}),
 	}
+);
 
-	// Check for design viewing requests
-	if (
-		(message.includes("show") && message.includes("design")) ||
-		(message.includes("see") && message.includes("design")) ||
-		(message.includes("get") && message.includes("design")) ||
-		(message.includes("fetch") && message.includes("design")) ||
-		message.includes("current design") ||
-		message.includes("my design")
-	) {
-		return {
-			type: "view_design",
-			originalRequest: userMessage,
-		};
+const updateDesignTool = tool(
+	async ({ clientId, designUpdates }) => {
+		console.log("updateDesign", clientId, designUpdates);
+		const result = await updateDesign(clientId, designUpdates);
+		console.log("updateDesign result", result);
+		return result;
+	},
+	{
+		name: "updateDesign",
+		description: "Update the design for a client",
+		schema: z.object({
+			clientId: z.string().describe("The client ID"),
+			designUpdates: z
+				.record(z.any())
+				.describe("The design updates to apply as key-value pairs"),
+		}),
 	}
+);
 
-	return {
-		type: "unclear",
-		originalRequest: userMessage,
-	};
-}
-
-// SAME: Validation function (keep your existing implementation)
-function validateChangeRequest(field, value) {
-	console.log(`🔍 Validating request - Field: "${field}", Value: "${value}"`);
-
-	const mappedField = fieldMapping[field.toLowerCase()];
-
-	if (!mappedField) {
-		console.log(`❌ Field mapping failed for: "${field}"`);
-		return {
-			valid: false,
-			reason: `Field '${field}' is not recognized. Available fields: ${Object.keys(
-				fieldMapping
-			).join(", ")}`,
-			suggestions: Object.keys(fieldMapping).filter(
-				(key) =>
-					key.includes(field.toLowerCase()) || field.toLowerCase().includes(key)
-			),
-		};
+const getQAForClientTool = tool(
+	async ({ clientId }) => {
+		console.log("getQAForClient", clientId);
+		const result = await getQAForClient(clientId);
+		console.log("getQAForClient result", result);
+		return result;
+	},
+	{
+		name: "getQAForClient",
+		description: "Get the questions and the answers answered by a client",
+		schema: z.object({
+			clientId: z.string().describe("The client ID"),
+		}),
 	}
+);
 
-	const optionsKey = getOptionsKey(mappedField);
-
-	if (!optionsKey || !DESIGN_OPTIONS[optionsKey]) {
-		console.log(`❌ Options key not found for: "${mappedField}"`);
-		return {
-			valid: false,
-			reason: `Internal error: Options not found for field '${field}'`,
-		};
-	}
-
-	const allowedValues = DESIGN_OPTIONS[optionsKey];
-	const normalizedValue = value.toLowerCase();
-	const normalizedAllowedValues = allowedValues.map((v) => v.toLowerCase());
-
-	if (!normalizedAllowedValues.includes(normalizedValue)) {
-		console.log(
-			`❌ Value validation failed. "${value}" not in [${allowedValues.join(
-				", "
-			)}]`
-		);
-		return {
-			valid: false,
-			reason: `Value '${value}' is not allowed for ${field}. Available options: [${allowedValues.join(
-				", "
-			)}]`,
-			field: field,
-			requestedValue: value,
-			allowedValues: allowedValues,
-			mappedField,
-			optionsKey,
-		};
-	}
-
-	console.log(`✅ Validation successful for: "${field}" = "${value}"`);
-	return {
-		valid: true,
-		mappedField,
-		optionsKey,
-		allowedValues,
-		actualValue:
-			allowedValues[normalizedAllowedValues.indexOf(normalizedValue)],
-	};
-}
-
-// SAME: Pre-processing (keep your existing implementation)
-async function preprocessUserRequest(userMessage, clientId) {
-	const parsed = parseUserRequest(userMessage);
-
-	if (parsed.type === "specific_change") {
-		const validation = validateChangeRequest(parsed.field, parsed.value);
-
-		if (!validation.valid) {
-			return {
-				type: "validation_error",
-				error: validation.reason,
-				field: parsed.field,
-				requestedValue: parsed.value,
-				allowedValues: validation.allowedValues,
-				suggestions: validation.suggestions,
-				originalRequest: userMessage,
-			};
-		}
-
-		return {
-			type: "valid_change",
-			field: parsed.field,
-			value: parsed.value,
-			validation: validation,
-			originalRequest: userMessage,
-		};
-	}
-
-	return {
-		type: parsed.type,
-		originalRequest: userMessage,
-		parsed: parsed,
-	};
-}
-
-// FIXED: Much cleaner and focused prompt template
-const designEvaluationPromptTemplate = `
-## CURRENT DESIGN STATE
-{currentDesignAnalysis}
-
-## USER REQUEST
-{userRequest}
-
-## REQUEST ANALYSIS
-{requestAnalysis}
-
-## STRICT RESPONSE RULES:
-1. ONLY recommend changes from USER-CONTROLLABLE ELEMENTS
-2. NEVER mention hover effects, animations, spacing, or CSS
-3. NEVER ask for component ID (we use client ID only)
-
-## RESPONSE FORMATS:
-
-### For VALIDATION ERRORS:
-**VALIDATION**: ❌ Invalid Request
-
-**ERROR**: Value '{requestedValue}' is not allowed for {field}. Available options: [{availableOptions}]
-
-**AVAILABLE OPTIONS for {field}**:
-{optionsList}
-
-**SUGGESTION**: Try one of these instead:
-- {suggestion1}
-- {suggestion2}
-
-### For VALID REQUESTS:
-**VALIDATION**: ✅ Valid Request
-
-**CHANGE**: {field} → {requestedValue}
-
-**VISUAL IMPACT**: 
-- Current Look: [describe current]
-- New Look: [describe after change]
-- Overall Effect: [positive/negative impact]
-
-**RECOMMENDATION**: 👍 Great choice / ⚠️ Consider carefully / ❌ Not recommended
-
-**REASONING**: [2-3 sentences explaining why, focusing ONLY on visual design impact]
-
-**WHAT HAPPENS NEXT**: Confirm if you want to proceed with this change to your design.
-
-### For DESIGN VIEWING:
-**CURRENT DESIGN CONFIGURATION**:
-{currentDesign}
-
-REMEMBER: Only suggest changes to the predefined options. No hover effects, animations, or custom styling, always analyse current design before giving recommendation.
-`;
-
-// FIXED: Main agent function with better error handling
-async function callEvaluationModel(state) {
-	const lastMessage = state.messages[state.messages.length - 1];
-	console.log("📝 DesignAgent: Last message:", lastMessage.content);
-
-	try {
-		// Extract client ID
-		const clientId = extractClientId(lastMessage.content);
-		console.log("🔍 Extracted client ID:", clientId);
-
-		// PRE-PROCESS the request for validation
-		const preprocessResult = await preprocessUserRequest(
-			lastMessage.content,
-			clientId
-		);
-		console.log("🔍 Preprocess result:", preprocessResult);
-
-		// FIXED: Better validation error response
-		if (preprocessResult.type === "validation_error") {
-			const optionsList = preprocessResult.allowedValues
-				? preprocessResult.allowedValues
-						.map((opt) => {
-							const explanation =
-								OPTION_EXPLANATIONS[
-									getOptionsKey(
-										fieldMapping[preprocessResult.field.toLowerCase()]
-									)
-								]?.[opt] || "Standard option";
-							return `- ${opt}: ${explanation}`;
-						})
-						.join("\n")
-				: "No options available";
-
-			const suggestions = preprocessResult.allowedValues
-				? preprocessResult.allowedValues.slice(0, 2)
-				: [];
-
-			const errorResponse = `**VALIDATION**: ❌ Invalid Request
-
-**ERROR**: Value '${preprocessResult.requestedValue}' is not allowed for ${
-				preprocessResult.field
-			}. Available options: [${
-				preprocessResult.allowedValues?.join(", ") || "none"
-			}]
-
-**AVAILABLE OPTIONS for ${preprocessResult.field}**:
-${optionsList}
-
-**SUGGESTION**: Try one of these instead:
-${suggestions
-	.map(
-		(opt) => `- ${opt}: This might achieve the visual effect you're looking for`
-	)
-	.join("\n")}
-
-**NOTE**: We can only modify predefined design options stored in our database. Custom styling is not available.`;
-
-			return {
-				messages: [
-					new AIMessage({
-						content: errorResponse,
-					}),
-				],
-			};
-		}
-
-		// Get design data if needed
-		const promptContent = await generatePromptContent(
-			clientId,
-			lastMessage.content
-		);
-
-		// FIXED: Simpler request analysis
-		const requestAnalysis = `
-**Request Type**: ${preprocessResult.type}
-**Status**: ${
-			preprocessResult.type === "valid_change"
-				? "✅ Valid - proceeding with analysis"
-				: "📋 Analyzing request"
-		}
-${preprocessResult.field ? `**Target Field**: ${preprocessResult.field}` : ""}
-${
-	preprocessResult.value ? `**Requested Value**: ${preprocessResult.value}` : ""
-}
-        `;
-
-		// FIXED: Cleaner prompt generation
-		const dynamicPrompt = designEvaluationPromptTemplate
-			.replace("{currentDesignAnalysis}", promptContent.currentDesignAnalysis)
-			.replace("{userRequest}", promptContent.userRequest)
-			.replace("{requestAnalysis}", requestAnalysis);
-
-		const updatedMessages = [
-			new SystemMessage(dynamicPrompt),
-			new HumanMessage(lastMessage.content),
-		];
-
-		const response = await evaluationLLM.invoke(updatedMessages);
-
-		console.log("🤖 DesignAgent LLM response:");
-		console.log("  - Content:", response.content);
-		console.log("  - Tool calls:", response.tool_calls?.length || 0);
-
-		return {
-			messages: [
-				new AIMessage({
-					content: response.content,
-					tool_calls: response.tool_calls || [],
-				}),
-			],
-		};
-	} catch (error) {
-		console.error("Error in callEvaluationModel:", error);
-		return {
-			messages: [
-				new AIMessage({
-					content: `Error evaluating design change: ${error.message}`,
-				}),
-			],
-		};
-	}
-}
-
-// Helper to extract client ID from messages (same as before)
-function extractClientId(messageContent) {
-	const patterns = [
-		/client\s*id\s*is\s*(\d+)/i,
-		/client\s*id\s*(\d+)/i,
-		/client\s+(\d+)/i,
-		/clientId\s*(\d+)/i,
-		/\bclient\s*:\s*(\d+)/i,
-	];
-
-	for (const pattern of patterns) {
-		const match = messageContent.match(pattern);
-		if (match) return match[1];
-	}
-
-	const numberMatch = messageContent.match(/\b(\d+)\b/);
-	if (numberMatch) return numberMatch[1];
-
-	return null;
-}
-
-// FIXED: Simpler design analysis
-function analyzeCurrentDesign(designData) {
-	if (!designData) {
-		return "No design data available - using default configuration";
-	}
-
-	let analysis = "## CURRENT DESIGN CONFIGURATION\n\n";
-
-	const headerLayout =
-		designData.header_design?.layout ||
-		designData.header_design?.Layout ||
-		"classic";
-	const socialIconStyle =
-		designData.header_design?.["social-icon-style"] ||
-		designData.header_design?.socialIconStyle ||
-		"solid";
-
-	analysis += `**Header Layout**: ${headerLayout}\n`;
-	analysis += `**Social Icon Style**: ${socialIconStyle}\n`;
-
-	// Add other current settings
-	if (designData.appearance?.background) {
-		analysis += `**Background**: ${designData.appearance.background}\n`;
-	}
-	if (designData.card_design?.style) {
-		analysis += `**Card Style**: ${designData.card_design.style}\n`;
-	}
-	if (designData.button_design?.style) {
-		analysis += `**Button Style**: ${designData.button_design.style}\n`;
-	}
-
-	console.log("\n\nCurrent Design Analysis:\n", analysis, "\n");
-	return analysis;
-}
-
-// FIXED: Simpler options formatting
-function formatAllowedOptions() {
-	let formatted = "## AVAILABLE DESIGN OPTIONS\n\n";
-	for (const [category, options] of Object.entries(DESIGN_OPTIONS)) {
-		const categoryName = category
-			.replace(/_/g, " ")
-			.replace(/([A-Z])/g, " $1")
-			.trim();
-		formatted += `**${categoryName}**: ${options.join(", ")}\n`;
-	}
-	return formatted;
-}
-
-async function generatePromptContent(clientId, userMessage) {
-	let currentDesignAnalysis =
-		"No design data available - will be fetched when needed";
-	let userRequest = userMessage;
-
-	if (clientId) {
-		try {
-			const designData = await getClientDesign(clientId);
-			currentDesignAnalysis = analyzeCurrentDesign(designData);
-		} catch (error) {
-			console.error("Error fetching design data:", error);
-			currentDesignAnalysis = `Error fetching design data: ${error.message}`;
-		}
-	}
-
-	return {
-		currentDesignAnalysis,
-		userRequest,
-		allowedOptionsSummary: formatAllowedOptions(),
-	};
-}
-
-// LLM setup (same as before but without tools since you haven't created CRUD tools yet)
-const evaluationLLM = new AzureChatOpenAI({
+const designLLM = new AzureChatOpenAI({
 	azureOpenAIEndpoint: process.env.AZURE_OPENAI_ENDPOINT,
 	azureOpenAIApiKey: process.env.AZURE_OPENAI_API_KEY,
 	azureOpenAIApiDeploymentName: "gpt-4o",
 	azureOpenAIApiVersion: "2025-01-01-preview",
-	temperature: 0.3,
+	temperature: 0,
 }).bindTools([getClientDesignTool, updateDesignTool, getQAForClientTool]);
-// REMOVED: .bindTools([getClientDesignTool, updateDesignTool]) since you haven't created CRUD tools yet
 
-// FIXED: Simplified flow since no tools yet
-function shouldContinueDesign(state) {
-	const lastMessage = state.messages[state.messages.length - 1];
-	console.log(
-		"Design should continue? Last message type:",
-		lastMessage.type || lastMessage._getType()
-	);
-	console.log("Last message tool_calls:", lastMessage.tool_calls);
+async function callDesignModel(state) {
+	console.log("🧠 DesignAgent	: Processing messages...");
+	console.log("📨 Messages count:", state.messages.length);
 
-	// Since no CRUD tools yet, always end
-	console.log("Ending design evaluation (no CRUD tools implemented yet)");
-	return "__end__";
+	const lastHumanMessage = state.messages
+		.filter((m) => m._getType() === "human")
+		.pop();
+
+	if (lastHumanMessage) {
+		console.log("💬 Last human message:", lastHumanMessage.content);
+	}
+
+	const response = await designLLM.invoke(state.messages);
+
+	console.log("🤖 DesignAgent LLM response:");
+	console.log("  - Content:", response.content);
+	console.log("  - Tool calls:", response.tool_calls?.length || 0);
+
+	if (response.tool_calls) {
+		response.tool_calls.forEach((toolCall, index) => {
+			console.log(`  - Tool call ${index + 1}:`, {
+				name: toolCall.name,
+				args: toolCall.args,
+			});
+		});
+	}
+
+	return { messages: [response] };
 }
 
-// PLACEHOLDER: Tool function for when you implement CRUD
 async function callDesignTools(state) {
-	console.log("🛠️ DesignAgent: Tools not implemented yet");
+	console.log("🛠️ DesignAgent: Calling tools...");
 
 	const lastMessage = state.messages[state.messages.length - 1];
 	const toolCalls = lastMessage.tool_calls || [];
 
-	console.log("Tool calls found:", toolCalls.length);
+	console.log("🔧 Tool calls found:", toolCalls.length);
 
 	const toolMessages = await Promise.all(
 		toolCalls.map(async (toolCall) => {
-			console.log("Processing tool call:", toolCall.name);
-			console.log("Tool call arguments:", toolCall.args);
+			console.log("⚡ Executing tool:", toolCall.name);
+			console.log("⚡ Tool args:", toolCall.args);
 
 			let toolResult;
 
 			try {
 				if (toolCall.name === "getClientDesign") {
-					console.log("This is from callDesignTools");
 					toolResult = await getClientDesign(toolCall.args);
 				} else if (toolCall.name === "updateDesign") {
-					console.log("This is from callDesignTools");
-
-					toolResult = await updateDesignTool(toolCall.args);
-				} else if (toolCall.name === "getQAForClientTool") {
-					console.log("This is from callDesignTools");
-
-					toolResult = await getQAForClientTool(toolCall.args);
+					toolResult = await updateDesign(toolCall.args);
+				} else if (toolCall.name === "getQAForClient") {
+					toolResult = await getQAForClient(toolCall.args);
 				} else {
-					console.log("This is from callDesignTools");
-
-					throw new Error(`Unknown tool call: ${toolCall.name}`);
+					throw new Error(`Unknown tool : ${toolCall.name}`);
 				}
 
-				console.log("Tool call result:", toolResult);
-				return {
-					type: "tool",
-					tool_call_id: toolCall.id,
-					name: toolCall.name,
-					content: JSON.stringify(toolResult),
-				};
+				console.log("✅ Tool execution successful");
 			} catch (err) {
-				console.log("Error calling tool:", err);
-				toolResult = `Error calling tool ${toolCall.name}: ${err.message}`;
+				console.error("❌ Tool execution failed:", err);
+				toolResult = {
+					success: false,
+					error: "Tool execution failed",
+					details: err.message,
+				};
 			}
+
+			return {
+				type: "tool",
+				tool_call_id: toolCall.id,
+				name: toolCall.name,
+				content: JSON.stringify(toolResult),
+			};
 		})
 	);
+
 	console.log("📝 Tool messages created:", toolMessages.length);
-	return { messages: [toolMessages] };
+	return { messages: toolMessages };
 }
 
-export const DesignEvaluationAgent = new StateGraph(MessagesAnnotation)
-	.addNode("evaluate", callEvaluationModel)
-	.addNode("tools", callDesignTools)
-	// REMOVED: tools node since you haven't implemented CRUD yet
-	.addEdge("__start__", "evaluate")
-	.addConditionalEdges("evaluate", shouldContinueDesign)
-	// REMOVED: tools edges
-	.addEdge("tools", "evaluate")
-	.compile();
+function shouldContinueDesign(state) {
+	const lastMessage = state.messages[state.messages.length - 1];
+	console.log(
+		"🤔 DesignAgent should continue? Last message type:",
+		lastMessage.type || lastMessage._getType()
+	);
 
-export { parseUserRequest, validateChangeRequest, analyzeCurrentDesign };
+	if (lastMessage.tool_calls && lastMessage.tool_calls.length > 0) {
+		console.log("➡️ Going to tools");
+		return "tools";
+	}
+
+	console.log("➡️ Ending");
+	return "__end__";
+}
+
+export const DesignAgent = new StateGraph(MessagesAnnotation)
+	.addNode("llmCall", callDesignModel)
+	.addNode("tools", callDesignTools)
+	.addEdge("__start__", "llmCall")
+	.addConditionalEdges("llmCall", shouldContinueDesign)
+	.addEdge("tools", "llmCall")
+	.compile();
