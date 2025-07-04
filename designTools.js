@@ -328,3 +328,4 @@ export const getQAForClient = async ({ clientId }) => {
 		throw new Error("Internal server error");
 	}
 };
+// getQAForClient({ clientId: 6 });

@@ -109,39 +109,60 @@ const routerLLM = new AzureChatOpenAI({
 async function callModel(state) {
 	const lastMessage = state.messages[state.messages.length - 1];
 	const userMessage = lastMessage.content.toLowerCase();
-	
+
 	// Log the message for debugging
-	console.log("🔍 Router analyzing message:", userMessage);
-	
+	// console.log("🔍 Router analyzing message:", userMessage);
+
 	// Pre-check for common design patterns to help the LLM
 	const designKeywords = [
-		'design', 'style', 'styling', 'appearance', 'visual', 'layout',
-		'button', 'card', 'banner', 'background', 'color', 'palette',
-		'gradient', 'solid', 'stroked', 'shadow', 'radius', 'theme',
-		'social icon', 'social icons', 'header', 'how would it look',
-		'change', 'update', 'modify'
+		"design",
+		"style",
+		"styling",
+		"appearance",
+		"visual",
+		"layout",
+		"button",
+		"card",
+		"banner",
+		"background",
+		"color",
+		"palette",
+		"gradient",
+		"solid",
+		"stroked",
+		"shadow",
+		"radius",
+		"theme",
+		"social icon",
+		"social icons",
+		"header",
+		"how would it look",
+		"change",
+		"update",
+		"modify",
 	];
-	
-	const hasDesignKeywords = designKeywords.some(keyword => 
+
+	const hasDesignKeywords = designKeywords.some((keyword) =>
 		userMessage.includes(keyword)
 	);
-	
+
 	const hasComponentId = /component\s*\d+|componentid\s*\d+/i.test(userMessage);
-	
+
 	console.log("🔍 Router analysis:", {
 		hasDesignKeywords,
 		hasComponentId,
-		message: userMessage.substring(0, 100) + "..."
+		message: userMessage.substring(0, 100) + "...",
 	});
 
 	const response = await routerLLM.invoke(state.messages);
-	
+
 	// Log the routing decision
 	const toolCall = response.tool_calls?.[0];
+	console.log("ToolCall decision:", toolCall);
 	if (toolCall) {
 		console.log("🛣️ Router decision:", toolCall.args.route);
 	}
-	
+
 	return { messages: [response] };
 }
 

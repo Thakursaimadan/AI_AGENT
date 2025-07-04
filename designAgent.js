@@ -22,6 +22,7 @@ You are a Design Validation Expert for a web design system. You ONLY work with p
 4. NEVER suggest custom CSS or manual styling
 5. If user requests something not in our options, explain it's not available and suggest alternatives
 6. ALWAYS consider the client's onboarding/signup questions and their answers (retrieved via getQAForClient) to personalize or contextualize your recommendations. These questions were answered by the client during signup and provide important context about their preferences, goals, or business type.
+7. If the clientId is not provided in the user's message, you MUST ask the user to provide their clientId before proceeding with any design suggestions or tool calls.
 
 ## USER-CONTROLLABLE ELEMENTS (ONLY THESE):
 - Layout: ${DESIGN_OPTIONS.header_layout.join(", ")}
@@ -34,7 +35,8 @@ You are a Design Validation Expert for a web design system. You ONLY work with p
 
 ## RESPONSE FORMAT:
 For INVALID requests: Show validation error with available options
-For VALID requests: Analyze visual impact using ONLY the controllable elements above, and reference the client's onboarding/signup answers if they are relevant to the suggestion.
+For VALID requests: Analyze visual impact using ONLY the controllable elements above, and reference the client's onboarding/signup answers.
+For EVERY recommendation, you MUST explicitly reference the client's onboarding/signup answers provided above. If the answers are not directly relevant, state this clearly (e.g., "Based on your onboarding answers (summarize them), there is no direct impact on this design choice, but...").
 For design viewing: Show current configuration
 
 REMEMBER: You can ONLY recommend changes to the elements listed above. Everything else is not user-controllable.
@@ -99,8 +101,38 @@ const designLLM = new AzureChatOpenAI({
 	temperature: 0,
 }).bindTools([getClientDesignTool, updateDesignTool, getQAForClientTool]);
 
+// Helper to extract clientId from messages (hybrid approach: regex only)
+function extractClientId(messages) {
+	for (let i = messages.length - 1; i >= 0; i--) {
+		const msg = messages[i];
+		if (msg.content && typeof msg.content === "string") {
+			// Matches: clientId: 6, clientId=6, clientId 6, client 6, for client 6
+			const match = msg.content.match(/client(?:Id)?[\s:=]*([0-9]+)/i);
+			if (match) return match[1];
+		}
+	}
+	return null;
+}
+
+function formatQA(answers) {
+	if (!answers || answers.length === 0)
+		return "No onboarding answers are available for this client.";
+	// Group by question, merge all chosen_options
+	const grouped = {};
+	answers.forEach((a) => {
+		if (!grouped[a.question]) grouped[a.question] = new Set();
+		a.chosen_options.forEach((opt) => grouped[a.question].add(opt));
+	});
+	return Object.entries(grouped)
+		.map(
+			([q, opts], i) =>
+				`Q${i + 1}: ${q}\nA${i + 1}: ${Array.from(opts).join(", ")}`
+		)
+		.join("\n\n");
+}
+
 async function callDesignModel(state) {
-	console.log("🧠 DesignAgent	: Processing messages...");
+	console.log("🧠 DesignAgent\t: Processing messages...");
 	console.log("📨 Messages count:", state.messages.length);
 
 	const lastHumanMessage = state.messages
@@ -111,7 +143,43 @@ async function callDesignModel(state) {
 		console.log("💬 Last human message:", lastHumanMessage.content);
 	}
 
-	const response = await designLLM.invoke(state.messages);
+	// Hybrid clientId extraction (regex only)
+	const clientId = extractClientId(state.messages);
+	const contextMessages = [];
+
+	if (clientId) {
+		try {
+			const [design, qa] = await Promise.all([
+				getClientDesign({ clientId }),
+				getQAForClient({ clientId }),
+			]);
+			contextMessages.push({
+				type: "system",
+				content: `Current design configuration for client ${clientId}:\n${JSON.stringify(
+					design,
+					null,
+					2
+				)}`,
+			});
+			contextMessages.push({
+				type: "system",
+				content: `Onboarding/Signup Answers for client ${clientId}:\n${formatQA(
+					qa.answers
+				)}`,
+			});
+		} catch (err) {
+			console.error("Error fetching design or Q&A context:", err);
+		}
+	}
+
+	// Compose messages: [system prompt, context, ...existing, user]
+	const messages = [
+		{ type: "system", content: designPrompt },
+		...contextMessages,
+		...state.messages.filter((m) => m._getType() !== "system"),
+	];
+
+	const response = await designLLM.invoke(messages);
 
 	console.log("🤖 DesignAgent LLM response:");
 	console.log("  - Content:", response.content);

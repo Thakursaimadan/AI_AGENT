@@ -73,8 +73,8 @@ async function handleInput(text) {
 		const aiMessage = routeResult.messages.find((m) => m._getType() === "ai");
 		let route = "editor"; // default
 
-		console.log("🔍 Router response:", aiMessage?.content || "No content");
-		console.log("🔧 Router tool calls:", aiMessage?.tool_calls?.length || 0);
+		// console.log("🔍 Router response:", aiMessage?.content || "No content");
+		// console.log("🔧 Router tool calls:", aiMessage?.tool_calls?.length || 0);
 
 		if (aiMessage && aiMessage.tool_calls && aiMessage.tool_calls.length > 0) {
 			const toolCall = aiMessage.tool_calls[0];
