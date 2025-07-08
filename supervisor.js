@@ -69,18 +69,40 @@ async function handleInput(text) {
 			],
 		});
 
-		// Find the AI message with routing decision
-		const aiMessage = routeResult.messages.find((m) => m._getType() === "ai");
+		// Find any message with tool_calls
+		const toolCallMessage = routeResult.messages.find(
+			(m) => m.tool_calls && m.tool_calls.length > 0
+		);
 		let route = "editor"; // default
 
-		// console.log("🔍 Router response:", aiMessage?.content || "No content");
-		// console.log("🔧 Router tool calls:", aiMessage?.tool_calls?.length || 0);
+		// console.log(
+		// 	"All router messages:",
+		// 	routeResult.messages.map((m) => ({
+		// 		type: m.type || m._getType?.(),
+		// 		...m,
+		// 	}))
+		// );
 
-		if (aiMessage && aiMessage.tool_calls && aiMessage.tool_calls.length > 0) {
-			const toolCall = aiMessage.tool_calls[0];
+		// console.log("Tool calls found in router messages:", toolCallMessage);
+		// console.log(
+		// 	"Tool calls in router messages:",
+		// 	toolCallMessage?.tool_calls || []
+		// );
+
+		if (toolCallMessage) {
+			// console.log("Inside if conidition of supervisor.js");
+			const toolCall = toolCallMessage.tool_calls[0];
 			route = toolCall.args.route;
 			console.log("🛣️ Router tool call args:", toolCall.args);
+		} else {
+			// Fallback: try to infer from tool message content if needed
+			console.log(
+				"No tool_calls found in any message. All messages:",
+				routeResult.messages
+			);
 		}
+
+		console.log("After if condition of supervisor.js");
 
 		console.log("🛣️ Router chose route:", route);
 

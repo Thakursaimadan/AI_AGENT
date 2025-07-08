@@ -211,6 +211,9 @@ const JSONB_FIELDS = [
 
 export const updateDesign = async ({ clientId, updates }) => {
 	try {
+
+		console.log("Updating design for client:", clientId, "with updates:", updates);
+
 		if (!clientId || !updates) {
 			throw new Error("Client ID and updates are required");
 		}

@@ -216,6 +216,7 @@ async function callDesignTools(state) {
 				if (toolCall.name === "getClientDesign") {
 					toolResult = await getClientDesign(toolCall.args);
 				} else if (toolCall.name === "updateDesign") {
+					console.log("Tool call arguments:", toolCall.args);
 					toolResult = await updateDesign(toolCall.args);
 				} else if (toolCall.name === "getQAForClient") {
 					toolResult = await getQAForClient(toolCall.args);

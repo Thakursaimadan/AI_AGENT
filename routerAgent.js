@@ -106,6 +106,55 @@ const routerLLM = new AzureChatOpenAI({
 	temperature: 0,
 }).bindTools([routerTool]);
 
+const callRouterTools = async (state) => {
+	// console.log("Calling Router Tools with state:", state);
+	try {
+		const lastMessage = state.messages[state.messages.length - 1];
+		const toolCalls = lastMessage.tool_calls || [];
+
+		console.log("🔧 Tool calls found:", toolCalls.length);
+
+		const toolMessages = await Promise.all(
+			toolCalls.map(async (toolCall) => {
+				console.log("⚡ Executing tool:", toolCall.name);
+				console.log("⚡ Tool args:", toolCall.args);
+
+				let toolResult;
+
+				try {
+					if (toolCall.name === "router") {
+						toolResult = await routerTool.invoke({
+							route: toolCall.args.route,
+						});
+					}
+				} catch (err) {
+					console.error("Error executing tool:", err);
+					toolResult = {
+						success: false,
+						error: `Failed to execute tool ${toolCall.name}: ${err.message}`,
+						details: err.message,
+					};
+				}
+
+				return {
+					type: "tool",
+					tool_call_id: toolCall.id,
+					name: toolCall.name,
+					content: JSON.stringify(toolResult),
+				};
+			})
+		);
+
+		console.log("✅ All tools executed successfully");
+		console.log("Tool messages:", toolMessages);
+
+		return { messages: toolMessages };
+	} catch (err) {
+		console.error("Error in callRouterTools:", err);
+		throw new Error("Failed to call router tools");
+	}
+};
+
 async function callModel(state) {
 	const lastMessage = state.messages[state.messages.length - 1];
 	const userMessage = lastMessage.content.toLowerCase();
@@ -166,8 +215,19 @@ async function callModel(state) {
 	return { messages: [response] };
 }
 
+// Conditional edge function to determine next step
+const shouldCallTools = (state) => {
+	const lastMessage = state.messages[state.messages.length - 1];
+	return lastMessage.tool_calls && lastMessage.tool_calls.length > 0;
+};
+
 export const RouterAgent = new StateGraph(MessagesAnnotation)
 	.addNode("llmCall", callModel)
+	.addNode("tools", callRouterTools)
 	.addEdge("__start__", "llmCall")
-	.addEdge("llmCall", "__end__")
+	.addConditionalEdges("llmCall", shouldCallTools, {
+		true: "tools",
+		false: "__end__",
+	})
+	.addEdge("tools", "__end__")
 	.compile();
