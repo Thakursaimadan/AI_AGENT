@@ -61,12 +61,17 @@ async function handleInput(text) {
 		}
 
 		// 1) Route through supervisor
+		const routerMessages = [
+			new SystemMessage(routerSystemPrompt),
+			...conversation,
+			new HumanMessage({ content: text }),
+		];
+		// console.log(
+		// 	"[ROUTER] Messages to agent:",
+		// 	JSON.stringify(routerMessages, null, 2)
+		// );
 		const routeResult = await RouterAgent.invoke({
-			messages: [
-				new SystemMessage(routerSystemPrompt),
-				...conversation,
-				new HumanMessage({ content: text }),
-			],
+			messages: routerMessages,
 		});
 
 		// Find any message with tool_calls
@@ -130,12 +135,17 @@ async function handleInput(text) {
 		}
 
 		if (route === "design") {
+			const designMessages = [
+				new SystemMessage(designPrompt),
+				...conversation,
+				new HumanMessage({ content: text }),
+			];
+			// console.log(
+			// 	"[DESIGN] Messages to agent:",
+			// 	JSON.stringify(designMessages, null, 2)
+			// );
 			const designResult = await DesignAgent.invoke({
-				messages: [
-					new SystemMessage(designPrompt),
-					...conversation,
-					new HumanMessage({ content: text }),
-				],
+				messages: designMessages,
 			});
 
 			const lastAIMessage = designResult.messages

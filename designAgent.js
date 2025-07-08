@@ -9,6 +9,7 @@ import {
 } from "./designTools.js";
 import dotenv from "dotenv";
 import { tool } from "@langchain/core/tools";
+import { sanitizeDesignUpdates } from "./designSanitize.js";
 
 dotenv.config();
 
@@ -38,6 +39,28 @@ For INVALID requests: Show validation error with available options
 For VALID requests: Analyze visual impact using ONLY the controllable elements above, and reference the client's onboarding/signup answers.
 For EVERY recommendation, you MUST explicitly reference the client's onboarding/signup answers provided above. If the answers are not directly relevant, state this clearly (e.g., "Based on your onboarding answers (summarize them), there is no direct impact on this design choice, but...").
 For design viewing: Show current configuration
+
+## MULTI-TURN INTERACTION & CONFIRMATION (IMPORTANT):
+- If the user requests a change, FIRST fetch the current design and onboarding answers.
+- THEN, summarize the intended change back to the user and ask for confirmation (e.g., "You want to change the Social Icon Style to Solid. Should I proceed?").
+- ONLY after the user confirms, call the updateDesign tool with the correct designUpdates.
+- If the user input is ambiguous or missing details, ask for clarification before proceeding.
+- ALWAYS include the intended designUpdates in the tool call, based on the user's original request and confirmation.
+- If you are unsure, ask the user to clarify or confirm before making any changes.
+
+## EXAMPLES
+
+User: "Change the style of my social icons to solid"
+Agent: "You want to change the Social Icon Style to Solid. Should I proceed?"
+User: "Yes"
+Agent: [Calls updateDesign with { clientId: "3", designUpdates: { socialIconStyle: "solid" } }]
+
+User: "Set my card style to classic"
+Agent: "You want to set the Card Style to Classic. Should I proceed?"
+User: "Yes"
+Agent: [Calls updateDesign with { clientId: "3", designUpdates: { cardStyle: "classic" } }]
+
+When asking for confirmation, always restate the exact change you intend to make, so that if the user replies 'yes', you know what to update.
 
 REMEMBER: You can ONLY recommend changes to the elements listed above. Everything else is not user-controllable.
 `;
@@ -154,7 +177,7 @@ async function callDesignModel(state) {
 				getQAForClient({ clientId }),
 			]);
 			contextMessages.push({
-				type: "system",
+				role: "system",
 				content: `Current design configuration for client ${clientId}:\n${JSON.stringify(
 					design,
 					null,
@@ -162,7 +185,7 @@ async function callDesignModel(state) {
 				)}`,
 			});
 			contextMessages.push({
-				type: "system",
+				role: "system",
 				content: `Onboarding/Signup Answers for client ${clientId}:\n${formatQA(
 					qa.answers
 				)}`,
@@ -174,12 +197,37 @@ async function callDesignModel(state) {
 
 	// Compose messages: [system prompt, context, ...existing, user]
 	const messages = [
-		{ type: "system", content: designPrompt },
+		{ role: "system", content: designPrompt },
 		...contextMessages,
 		...state.messages.filter((m) => m._getType() !== "system"),
 	];
 
-	const response = await designLLM.invoke(messages);
+	function toOpenAIMsg(m) {
+		if (m._getType) return { role: m._getType(), content: m.content, ...m };
+		if (m.constructor && m.constructor.name === "ToolMessage") {
+			return {
+				role: "tool",
+				content: m.content,
+				name: m.name,
+				tool_call_id: m.tool_call_id,
+				...m,
+			};
+		}
+		if (m.constructor && m.constructor.name === "AIMessage") {
+			return { role: "assistant", content: m.content, ...m };
+		}
+		if (m.role && m.content) return m;
+		if (m.kwargs && m.kwargs.content) {
+			return {
+				role: m.kwargs.role || m.type || "user",
+				content: m.kwargs.content,
+			};
+		}
+		return null;
+	}
+	const openAIMessages = messages.map(toOpenAIMsg).filter(Boolean);
+
+	const response = await designLLM.invoke(openAIMessages);
 
 	console.log("🤖 DesignAgent LLM response:");
 	console.log("  - Content:", response.content);
@@ -211,31 +259,32 @@ async function callDesignTools(state) {
 			console.log("⚡ Tool args:", toolCall.args);
 
 			let toolResult;
-
 			try {
 				if (toolCall.name === "getClientDesign") {
 					toolResult = await getClientDesign(toolCall.args);
 				} else if (toolCall.name === "updateDesign") {
-					console.log("Tool call arguments:", toolCall.args);
+					const rawUpdates = toolCall.args.designUpdates || {};
+					const sanitized = sanitizeDesignUpdates(rawUpdates);
+					toolCall.args.designUpdates = sanitized;
+					console.log("🧽 Sanitized Design Updates:", sanitized);
 					toolResult = await updateDesign(toolCall.args);
 				} else if (toolCall.name === "getQAForClient") {
 					toolResult = await getQAForClient(toolCall.args);
 				} else {
-					throw new Error(`Unknown tool : ${toolCall.name}`);
+					toolResult = { error: `Unknown tool: ${toolCall.name}` };
 				}
-
 				console.log("✅ Tool execution successful");
-			} catch (err) {
-				console.error("❌ Tool execution failed:", err);
+			} catch (error) {
+				console.error("❌ Tool execution failed:", error);
 				toolResult = {
 					success: false,
 					error: "Tool execution failed",
-					details: err.message,
+					details: error.message,
 				};
 			}
 
 			return {
-				type: "tool",
+				role: "tool",
 				tool_call_id: toolCall.id,
 				name: toolCall.name,
 				content: JSON.stringify(toolResult),

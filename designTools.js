@@ -127,6 +127,7 @@ export const LAYOUT_DEFINITIONS = {
 
 export const getClientDesign = async ({ clientId }) => {
 	if (!clientId) {
+		console.log("Client ID is required to fetch design");
 		throw new Error("Client ID is required");
 	}
 	try {
@@ -209,12 +210,16 @@ const JSONB_FIELDS = [
 	"text_props",
 ];
 
-export const updateDesign = async ({ clientId, updates }) => {
+export const updateDesign = async ({ clientId, designUpdates }) => {
 	try {
+		console.log(
+			"Updating design for client:",
+			clientId,
+			"with updates:",
+			designUpdates
+		);
 
-		console.log("Updating design for client:", clientId, "with updates:", updates);
-
-		if (!clientId || !updates) {
+		if (!clientId || !designUpdates) {
 			throw new Error("Client ID and updates are required");
 		}
 
@@ -223,12 +228,12 @@ export const updateDesign = async ({ clientId, updates }) => {
 		let idx = 1;
 
 		for (const field of JSONB_FIELDS) {
-			if (updates[field] !== undefined) {
+			if (designUpdates[field] !== undefined) {
 				// Merge incoming JSON into existing column
 				setClauses.push(
 					`${field} = COALESCE(${field}, '{}'::jsonb) || $${idx}`
 				);
-				values.push(updates[field]);
+				values.push(designUpdates[field]);
 				idx++;
 			}
 		}
