@@ -19,6 +19,7 @@ const rl = readline.createInterface({
 let conversation = [];
 let pendingOperation = null; // Store operation details from clarifier
 
+// Restore original handleInput for CLI (uses global state)
 async function handleInput(text) {
 	try {
 		// Check if we have a pending operation from clarifier (user is selecting componentId)
@@ -192,6 +193,183 @@ async function handleInput(text) {
 	}
 }
 
+// Stateless API entry point for chat-based orchestration
+export async function handleMessage({
+	message,
+	conversation = [],
+	pendingOperation = null,
+}) {
+	let localPending = pendingOperation;
+	let localConversation = [...conversation];
+	let reply = "";
+	try {
+		// (stateless logic, as previously refactored)
+		if (
+			localPending &&
+			localPending.componentIds &&
+			localPending.componentIds.length > 1
+		) {
+			const selectedIndex = parseInt(message.trim()) - 1;
+			if (
+				selectedIndex >= 0 &&
+				selectedIndex < localPending.componentIds.length
+			) {
+				const selectedComponentId = localPending.componentIds[selectedIndex];
+				const editorResult = await EditorAgent.invoke({
+					messages: [
+						new SystemMessage(editorSystemPrompt),
+						...localConversation,
+						new HumanMessage({
+							content: `Update component with clientId: ${
+								localPending.clientId
+							}, componentId: ${selectedComponentId}, updates: ${JSON.stringify(
+								localPending.updates
+							)}`,
+						}),
+					],
+				});
+				localPending = null;
+				const lastAIMessage = editorResult.messages
+					.filter((m) => m._getType() === "ai")
+					.pop();
+				reply = lastAIMessage ? lastAIMessage.content : "Update completed.";
+				localConversation.push(new HumanMessage({ content: message }));
+				localConversation.push(new AIMessage({ content: reply }));
+				return {
+					reply,
+					conversation: localConversation,
+					pendingOperation: localPending,
+				};
+			} else {
+				reply =
+					"Invalid selection. Please choose a valid number from the list.";
+				localConversation.push(new HumanMessage({ content: message }));
+				localConversation.push(new AIMessage({ content: reply }));
+				return {
+					reply,
+					conversation: localConversation,
+					pendingOperation: localPending,
+				};
+			}
+		}
+
+		const routerMessages = [
+			new SystemMessage(routerSystemPrompt),
+			...localConversation,
+			new HumanMessage({ content: message }),
+		];
+		const routeResult = await RouterAgent.invoke({ messages: routerMessages });
+		const toolCallMessage = routeResult.messages.find(
+			(m) => m.tool_calls && m.tool_calls.length > 0
+		);
+		let route = "editor"; // default
+		if (toolCallMessage) {
+			const toolCall = toolCallMessage.tool_calls[0];
+			route = toolCall.args.route;
+		}
+
+		if (route === "editor") {
+			const editorResult = await EditorAgent.invoke({
+				messages: [
+					new SystemMessage(editorSystemPrompt),
+					...localConversation,
+					new HumanMessage({ content: message }),
+				],
+			});
+			const lastAIMessage = editorResult.messages
+				.filter((m) => m._getType() === "ai")
+				.pop();
+			if (lastAIMessage && lastAIMessage.content.includes("need to clarify")) {
+				route = "clarify";
+			} else {
+				reply = lastAIMessage
+					? lastAIMessage.content
+					: "No response from editor agent.";
+				localConversation.push(new HumanMessage({ content: message }));
+				localConversation.push(new AIMessage({ content: reply }));
+				return {
+					reply,
+					conversation: localConversation,
+					pendingOperation: localPending,
+				};
+			}
+		}
+
+		if (route === "design") {
+			const designMessages = [
+				new SystemMessage(designPrompt),
+				...localConversation,
+				new HumanMessage({ content: message }),
+			];
+			const designResult = await DesignAgent.invoke({
+				messages: designMessages,
+			});
+			const lastAIMessage = designResult.messages
+				.filter((m) => m._getType() === "ai")
+				.pop();
+			if (lastAIMessage && lastAIMessage.content.includes("Please select")) {
+				localPending = extractOperationDetails(message);
+			}
+			reply = lastAIMessage
+				? lastAIMessage.content
+				: "No response from design agent.";
+			localConversation.push(new HumanMessage({ content: message }));
+			localConversation.push(new AIMessage({ content: reply }));
+			return {
+				reply,
+				conversation: localConversation,
+				pendingOperation: localPending,
+			};
+		}
+
+		if (route === "clarify") {
+			const clarifierResult = await ClarifierAgent.invoke({
+				messages: [
+					new SystemMessage(clarifierSystemPrompt),
+					...localConversation,
+					new HumanMessage({ content: message }),
+				],
+			});
+			const lastAIMessage = clarifierResult.messages
+				.filter((m) => m._getType() === "ai")
+				.pop();
+			if (lastAIMessage && lastAIMessage.content.includes("Please select")) {
+				localPending = extractOperationDetails(message);
+			}
+			reply = lastAIMessage
+				? lastAIMessage.content
+				: "No response from clarifier agent.";
+			localConversation.push(new HumanMessage({ content: message }));
+			localConversation.push(new AIMessage({ content: reply }));
+			return {
+				reply,
+				conversation: localConversation,
+				pendingOperation: localPending,
+			};
+		}
+
+		reply = "Sorry, I can only help with component editing right now.";
+		localConversation.push(new HumanMessage({ content: message }));
+		localConversation.push(new AIMessage({ content: reply }));
+		return {
+			reply,
+			conversation: localConversation,
+			pendingOperation: localPending,
+		};
+	} catch (error) {
+		console.error("Error in handleMessage:", error);
+		const reply =
+			"Sorry, there was an error processing your request. Please try again.";
+		localConversation.push(new HumanMessage({ content: message }));
+		localConversation.push(new AIMessage({ content: reply }));
+		return {
+			reply,
+			conversation: localConversation,
+			pendingOperation: localPending,
+		};
+	}
+}
+
 function extractOperationDetails(text) {
 	// Extract clientId, operation type, and updates from the user's message
 	const clientIdMatch = text.match(/client\s+(\d+)/i);
@@ -205,15 +383,15 @@ function extractOperationDetails(text) {
 	};
 }
 
-console.log("🚀 StateGraph Multi‑Agent CLI is ready. Type your prompt.");
-rl.prompt();
-rl.on("line", async (line) => {
-	const text = line.trim();
-	if (!text) return rl.prompt();
+// console.log("🚀 StateGraph Multi‑Agent CLI is ready. Type your prompt.");
+// rl.prompt();
+// rl.on("line", async (line) => {
+// 	const text = line.trim();
+// 	if (!text) return rl.prompt();
 
-	conversation.push(new HumanMessage({ content: text }));
-	const reply = await handleInput(text);
-	console.log("\n🤖", reply, "\n");
-	conversation.push(new AIMessage({ content: reply }));
-	rl.prompt();
-});
+// 	conversation.push(new HumanMessage({ content: text }));
+// 	const reply = await handleInput(text);
+// 	console.log("\n🤖", reply, "\n");
+// 	conversation.push(new AIMessage({ content: reply }));
+// 	rl.prompt();
+// });

@@ -17,12 +17,12 @@ export const designUpdateFieldMap = {
 	socialIconStyle: "header_design.social-icon-style",
 
 	// Color Palate
-	"color palate name": "color_palate.name",
-	"color palette name": "color_palate.name",
-	"accent color": "color_palate.colors.accent",
-	"primary color": "color_palate.colors.primary",
-	"secondary color": "color_palate.colors.secondary",
-	"background color": "color_palate.colors.background",
+	// "color palate name": "color_palate.name",
+	// "color palette name": "color_palate.name",
+	// "accent color": "color_palate.colors.accent",
+	// "primary color": "color_palate.colors.primary",
+	// "secondary color": "color_palate.colors.secondary",
+	// "background color": "color_palate.colors.background",
 
 	// Appearance
 	"appearance title": "appearance.title",
@@ -59,9 +59,14 @@ export const designUpdateFieldMap = {
 
 	// Desktop Background
 	"desktop background type": "desktop_background.type",
-	"desktop background color": "desktop_background.background",
-	"desktop background color count": "desktop_background.color_count",
-	"desktop background gradient type": "desktop_background.gradient_type",
+	"desktop's background type": "desktop_background.type",
+	"desktop's background" : "desktop_background.type",
+	// "desktop background color": "desktop_background.background",
+	// "desktop background color count": "desktop_background.color_count",
+	"desktop background gradient type": "desktop_background.type",
+	"gradient of desktop background" : "desktop_background.gradient_type",
+	"gradient desktop background" : "desktop_background.gradient_type",
+	"gradient type desktop background" : "desktop_background.gradient_type",
 
 	// Card Design
 	"card style": "card_design.style",
@@ -79,11 +84,7 @@ export const designUpdateFieldMap = {
 	"title font": "text_props.titles",
 	"subtitle font": "text_props.subtitles",
 
-	// Top-level fields
-	"banner library id": "banner_library_id",
-	"background library id": "background_library_id",
-	"background source url": "background_source_url",
-	"banner source url": "banner_source_url",
+
 };
 
 export const designFuse = new Fuse(Object.keys(designUpdateFieldMap), {
@@ -96,8 +97,10 @@ export function sanitizeDesignUpdates(rawUpdates) {
 	for (const key in rawUpdates) {
 		// Fuzzy match
 		let mappedKey = designUpdateFieldMap[key];
+		console.log("Sanitizing key:", key, "Mapped to:", mappedKey);
 		if (!mappedKey) {
 			const result = designFuse.search(key);
+			console.log("Searching for key:", key, "Result:", result);
 			if (result.length > 0) mappedKey = designUpdateFieldMap[result[0].item];
 		}
 		if (!mappedKey) continue; // skip unknown fields
@@ -110,6 +113,8 @@ export function sanitizeDesignUpdates(rawUpdates) {
 			curr = curr[parts[i]];
 		}
 		curr[parts[parts.length - 1]] = rawUpdates[key];
+		console.log("Curr:", curr);
+		console.log("Sanitized:", sanitized);
 	}
 	return sanitized;
 }
