@@ -185,7 +185,7 @@ export const getClientDesign = async ({ clientId }) => {
 			"Background URL:",
 			background_mediaUrl
 		);
-		// console.log("sample  -->\n", result.rows[0], "\n");
+		console.log("sample  -->\n", result.rows[0], "\n");
 		return {
 			...result.rows[0],
 			banner_mediaUrl,

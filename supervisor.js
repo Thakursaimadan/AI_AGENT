@@ -383,15 +383,15 @@ function extractOperationDetails(text) {
 	};
 }
 
-// console.log("🚀 StateGraph Multi‑Agent CLI is ready. Type your prompt.");
-// rl.prompt();
-// rl.on("line", async (line) => {
-// 	const text = line.trim();
-// 	if (!text) return rl.prompt();
+console.log("🚀 StateGraph Multi‑Agent CLI is ready. Type your prompt.");
+rl.prompt();
+rl.on("line", async (line) => {
+	const text = line.trim();
+	if (!text) return rl.prompt();
 
-// 	conversation.push(new HumanMessage({ content: text }));
-// 	const reply = await handleInput(text);
-// 	console.log("\n🤖", reply, "\n");
-// 	conversation.push(new AIMessage({ content: reply }));
-// 	rl.prompt();
-// });
+	conversation.push(new HumanMessage({ content: text }));
+	const reply = await handleInput(text);
+	console.log("\n🤖", reply, "\n");
+	conversation.push(new AIMessage({ content: reply }));
+	rl.prompt();
+});

@@ -5,24 +5,30 @@ import Fuse from "fuse.js";
 // Expanded mapping for all major fields in the design object
 export const designUpdateFieldMap = {
 	// Header Design
-	layout: "header_design.Layout",
+	"layout": "header_design.Layout",
 	"banner mediaurl": "header_design.banner_mediaUrl",
 	"banner image url": "header_design.banner_image_url",
 	"banner library id": "header_design.banner_library_id",
 	"banner source url": "header_design.banner_source_url",
 	"social icon style": "header_design.social-icon-style",
 	"social-icon-style": "header_design.social-icon-style",
-	socialiconstyle: "header_design.social-icon-style",
-	social_icon_style: "header_design.social-icon-style",
-	socialIconStyle: "header_design.social-icon-style",
+	"socialiconstyle": "header_design.social-icon-style",
+	"social_icon_style": "header_design.social-icon-style",
+	"socialIconStyle": "header_design.social-icon-style",
 
-	// Color Palate
-	// "color palate name": "color_palate.name",
-	// "color palette name": "color_palate.name",
-	// "accent color": "color_palate.colors.accent",
-	// "primary color": "color_palate.colors.primary",
-	// "secondary color": "color_palate.colors.secondary",
-	// "background color": "color_palate.colors.background",
+	// Color Palette - Fix the main mapping
+	"color_palate": "color_palate.colors", // This was missing!
+	"color palette": "color_palate.colors",
+	"color palate": "color_palate.colors",
+	"colorpalette": "color_palate.colors",
+	"colorpalate": "color_palate.colors",
+	"color_palette": "color_palate.colors",
+	"color palate name": "color_palate.name",
+	"color palette name": "color_palate.name",
+	"accent color": "color_palate.colors.accent",
+	"primary color": "color_palate.colors.primary",
+	"secondary color": "color_palate.colors.secondary",
+	"background color": "color_palate.colors.background",
 
 	// Appearance
 	"appearance title": "appearance.title",
@@ -60,21 +66,19 @@ export const designUpdateFieldMap = {
 	// Desktop Background
 	"desktop background type": "desktop_background.type",
 	"desktop's background type": "desktop_background.type",
-	"desktop's background" : "desktop_background.type",
-	// "desktop background color": "desktop_background.background",
-	// "desktop background color count": "desktop_background.color_count",
-	"desktop background gradient type": "desktop_background.type",
-	"gradient of desktop background" : "desktop_background.gradient_type",
-	"gradient desktop background" : "desktop_background.gradient_type",
-	"gradient type desktop background" : "desktop_background.gradient_type",
+	"desktop's background": "desktop_background.type",
+	"desktop background gradient type": "desktop_background.gradient_type",
+	"gradient of desktop background": "desktop_background.gradient_type",
+	"gradient desktop background": "desktop_background.gradient_type",
+	"gradient type desktop background": "desktop_background.gradient_type",
 
 	// Card Design
 	"card style": "card_design.style",
 	"card radius": "card_design.radius",
 	"card-radius": "card_design.radius",
-	cardradius: "card_design.radius",
-	card_radius: "card-radius",
-	cardRadius: "card-radius",
+	"cardradius": "card_design.radius",
+	"card_radius": "card_design.radius",
+	"cardRadius": "card_design.radius",
 
 	// Button Design
 	"button style": "button_design.style",
@@ -83,8 +87,6 @@ export const designUpdateFieldMap = {
 	// Text Props
 	"title font": "text_props.titles",
 	"subtitle font": "text_props.subtitles",
-
-
 };
 
 export const designFuse = new Fuse(Object.keys(designUpdateFieldMap), {
@@ -94,27 +96,52 @@ export const designFuse = new Fuse(Object.keys(designUpdateFieldMap), {
 
 export function sanitizeDesignUpdates(rawUpdates) {
 	const sanitized = {};
+	
 	for (const key in rawUpdates) {
-		// Fuzzy match
-		let mappedKey = designUpdateFieldMap[key];
-		console.log("Sanitizing key:", key, "Mapped to:", mappedKey);
+		console.log("Processing key:", key, "with value:", rawUpdates[key]);
+		
+		// Direct mapping first
+		let mappedKey = designUpdateFieldMap[key.toLowerCase()];
+		
 		if (!mappedKey) {
+			// Fuzzy search as fallback
 			const result = designFuse.search(key);
-			console.log("Searching for key:", key, "Result:", result);
-			if (result.length > 0) mappedKey = designUpdateFieldMap[result[0].item];
+			console.log("Fuzzy search for key:", key, "Result:", result);
+			if (result.length > 0 && result[0].score < 0.3) {
+				mappedKey = designUpdateFieldMap[result[0].item];
+			}
 		}
-		if (!mappedKey) continue; // skip unknown fields
-
-		// Build nested object
+		
+		if (!mappedKey) {
+			console.log("No mapping found for key:", key);
+			continue;
+		}
+		
+		console.log("Mapped key:", key, "to:", mappedKey);
+		
+		// Handle special case for color_palate when it's an object with color properties
+		if (mappedKey === "color_palate.colors" && typeof rawUpdates[key] === 'object') {
+			// This is the case where we're updating the entire colors object
+			const colorValue = rawUpdates[key];
+			if (!sanitized.color_palate) sanitized.color_palate = {};
+			sanitized.color_palate.colors = colorValue;
+			console.log("Updated color_palate.colors directly:", colorValue);
+			continue;
+		}
+		
+		// Build nested object for other cases
 		const parts = mappedKey.split(".");
 		let curr = sanitized;
+		
 		for (let i = 0; i < parts.length - 1; i++) {
-			curr[parts[i]] = curr[parts[i]] || {};
+			if (!curr[parts[i]]) curr[parts[i]] = {};
 			curr = curr[parts[i]];
 		}
+		
 		curr[parts[parts.length - 1]] = rawUpdates[key];
-		console.log("Curr:", curr);
-		console.log("Sanitized:", sanitized);
+		console.log("Built nested structure - Current level:", curr);
 	}
+	
+	console.log("Final sanitized object:", JSON.stringify(sanitized, null, 2));
 	return sanitized;
 }
