@@ -119,15 +119,19 @@ export function sanitizeDesignUpdates(rawUpdates) {
 		
 		console.log("Mapped key:", key, "to:", mappedKey);
 		
-		// Handle special case for color_palate when it's an object with color properties
-		if (mappedKey === "color_palate.colors" && typeof rawUpdates[key] === 'object') {
-			// This is the case where we're updating the entire colors object
-			const colorValue = rawUpdates[key];
-			if (!sanitized.color_palate) sanitized.color_palate = {};
-			sanitized.color_palate.colors = colorValue;
-			console.log("Updated color_palate.colors directly:", colorValue);
-			continue;
-		}
+		// Handle special case for color_palate when it's an object with name and colors
+        if (key.toLowerCase() === "color_palate" && typeof rawUpdates[key] === 'object') {
+            sanitized.color_palate = { ...rawUpdates[key] };
+            console.log("Updated color_palate directly:", sanitized.color_palate);
+            continue;
+        }
+        // Handle special case for color_palate.colors when it's just the colors object
+        if (mappedKey === "color_palate.colors" && typeof rawUpdates[key] === 'object') {
+            if (!sanitized.color_palate) sanitized.color_palate = {};
+            sanitized.color_palate.colors = rawUpdates[key];
+            console.log("Updated color_palate.colors directly:", rawUpdates[key]);
+            continue;
+        }
 		
 		// Build nested object for other cases
 		const parts = mappedKey.split(".");

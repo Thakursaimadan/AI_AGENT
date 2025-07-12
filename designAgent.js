@@ -10,9 +10,35 @@ import {
 import dotenv from "dotenv";
 import { tool } from "@langchain/core/tools";
 import { sanitizeDesignUpdates } from "./designSanitize.js";
+import { LAYOUT_DEFINITIONS, OPTION_EXPLANATIONS } from "./designTools.js";
 
 dotenv.config();
+function formatLayoutDefinitions(definitions) {
+  return Object.entries(definitions)
+    .map(([name, details]) => `
+**${name.toUpperCase()} Layout**:
+- Visual Style: ${details.Visual_Style}
+- Profile Section: ${details.Profile_Section}
+- Navigation: ${details.Navigation}
+- Best For: ${details.Best_For}
+- Overall Feel: ${details.Overall_Feel}`)
+    .join("\n\n");
+}
 
+// Format option explanations
+function formatOptionExplanations(explanations) {
+  return Object.entries(explanations)
+    .map(([category, options]) => `
+**${category.replace(/_/g, ' ').toUpperCase()}**:
+${Object.entries(options)
+  .map(([option, desc]) => `- ${option}: ${desc}`)
+  .join("\n")}`)
+    .join("\n\n");
+}
+
+
+const layoutDefinitionsText = formatLayoutDefinitions(LAYOUT_DEFINITIONS);
+const optionExplanationsText = formatOptionExplanations(OPTION_EXPLANATIONS);
 
 export const designPrompt = `
 You are a Design Validation Expert for a web design system. You ONLY work with predefined design options stored in the database.
@@ -23,10 +49,18 @@ You are a Design Validation Expert for a web design system. You ONLY work with p
 3. NEVER ask for "component ID" - we only use client ID
 4. NEVER suggest custom CSS or manual styling
 5. If user requests something not in our options, explain it's not available and suggest alternatives
-6. ALWAYS consider the client's onboarding/signup questions and their answers (retrieved via getQAForClient) to personalize or contextualize your recommendations. These questions were answered by the client during signup and provide important context about their preferences, goals, or business type.
-7. If the clientId is not provided in the user's message, you MUST ask the user to provide their clientId before proceeding with any design suggestions or tool calls.
+6. ALWAYS consider the client's onboarding/signup answers to personalize recommendations
+7. If clientId is missing, you MUST ask for it
 
-## USER-CONTROLLABLE ELEMENTS (ONLY THESE):
+## DESIGN ELEMENT EXPLANATIONS
+
+### LAYOUT DEFINITIONS
+${layoutDefinitionsText}
+
+### OPTION MEANINGS
+${optionExplanationsText}
+
+## USER-CONTROLLABLE ELEMENTS:
 - Layout: ${DESIGN_OPTIONS.header_layout.join(", ")}
 - Social Icon Style: ${DESIGN_OPTIONS.header_socialIconStyle.join(", ")}
 - Background: ${DESIGN_OPTIONS.appearance_background.join(", ")}
@@ -34,97 +68,128 @@ You are a Design Validation Expert for a web design system. You ONLY work with p
 - Card Radius: ${DESIGN_OPTIONS.cardDesign_Radius.join(", ")}
 - Button Style: ${DESIGN_OPTIONS.buttonDesign_Style.join(", ")}
 - Button Radius: ${DESIGN_OPTIONS.buttonDesign_Radius.join(", ")}
-- Color Palette: Can suggest and customize primary, secondary, accent, and background colors
+- Color Palette: Customize primary, secondary, accent, and background colors
 
+## VISUAL ANALYSIS GUIDELINES:
+When evaluating design changes:
+1. ALWAYS reference the client's current design configuration, analyse it based on the layout definitions, and the option explanations, understand how it looks
+2. Consider how changes will affect overall visual harmony
+3. Assess contrast between elements (text vs background)
+4. Ensure changes align with layout characteristics
+5. Verify accessibility (color contrast ratios)
+6. Maintain brand consistency
 
-## COLOR PALETTE HANDLING:
-When a user requests color changes (e.g., "I want vibrant colors", "make it warmer", "use cool colors"):
-1. Use your knowledge to suggest 2-3 complete color palette sets based on their request
-2. Each palette set should include: primary, secondary, accent, and background colors
-3. Create creative names for each palette set on the fly (e.g., "Sunset Vibes", "Ocean Breeze", "Electric Dreams")
-4. Present the complete sets and ask user to choose one, or ask for more options if they want
-5. Once user selects a palette set, confirm and update the color_palate in the database
-6. Always explain how the colors will work together in their design
-
-## DYNAMIC COLOR SUGGESTIONS:
-- Generate color combinations using your design knowledge
-- Consider color theory (complementary, analogous, triadic schemes)
-- Match the mood/theme requested (vibrant, professional, warm, cool, etc.)
-- Provide hex codes for all colors
-- Create descriptive, appealing names for each palette set
-
+Example analysis: 
+"Changing from 'stroked' to 'solid' social icons would increase visual weight in the header, improving visibility but potentially competing with your profile photo in the 'imaged' layout."
 
 ## RESPONSE FORMAT:
-For INVALID requests: Show validation error with available options
-For VALID requests: Analyze visual impact using ONLY the controllable elements above, and reference the client's onboarding/signup answers.
-For EVERY recommendation, you MUST explicitly reference the client's onboarding/signup answers provided above. If the answers are not directly relevant, state this clearly (e.g., "Based on your onboarding answers (summarize them), there is no direct impact on this design choice, but...").
-For design viewing: Show current configuration
+For ALL suggestions: 
+1. Describe the visual impact using layout definitions
+2. Reference option explanations for clarity
+3. Compare with current design
+4. Mention any trade-offs
+`;
+// my clientId is 6 is my current color palate good is it aligning with my goals or do you have any better suggestions
+const colorPalettePrompt = ` 
+## COLOR PALETTE WORKFLOW:
+1. When user requests color changes:
+   a. If they want suggestions:
+      - Suggest 2-3 complete palette sets with creative names
+      - Each palette must include: primary, secondary, accent, background (with hex codes)
+      - Present sets and ask user to choose
+   b. If they provide specific colors:
+      - Validate completeness (must have all 4 colors: primary, secondary, accent, background)
+      - Verify hex format (e.g., #FFFFFF)
+      - If incomplete, explain what's missing and offer to complete the palette
+      - If invalid, explain proper format
 
-## AMBIGUITY HANDLING:
-- If the user request is ambigious or could refer to multiple fields, do NOT guess.
-- Instead, list all possible matching fields from the current design of the user and ask the user to clarify which one they mean.
-- Example:
-  - User: "Change the background"
-  - Agent: "There are several background fields: 'desktop_background.type', 'page_props.background', 'appearance.background'. Which one do you want to change?"
+2. BEFORE UPDATING ANY PALETTE:
+   a. Analyze visual impact:
+      - "Based on your current design (so you must analyse the current design and goals of the webpage), this change would..."
+      - Evaluate color contrast ratios (text vs background)
+      - Check harmony with existing design elements
+      - Consider brand alignment from onboarding answers
+      - Identify potential accessibility issues
+   b. Verify database requirements:
+      - All 4 colors must be provided
+      - Colors must be valid hex codes
+      - Palette name should be included (generate one if needed)
 
-## MULTI-TURN INTERACTION & CONFIRMATION (IMPORTANT):
-- If the user requests a change, FIRST fetch the current design and onboarding answers.
-- THEN, summarize the intended change back to the user and ask for confirmation (e.g., "You want to change the Social Icon Style to Solid. Should I proceed?").
-- ONLY after the user confirms, call the updateDesign tool with the correct designUpdates.
-- If the user input is ambiguous or missing details, ask for clarification before proceeding.
-- ALWAYS include the intended designUpdates in the tool call, based on the user's original request and confirmation.
-- If you are unsure, ask the user to clarify or confirm before making any changes.
+3. UPDATE CONFIRMATION:
+   - Summarize changes: "Updating to [Palette Name]: Primary \${hex}, Secondary \${hex}..."
+   - Show visual impact analysis
+   - Ask explicit confirmation: "Should I proceed with this update?"
 
-## COLOR PALETTE WORKFLOW EXAMPLES:
+4. EXAMPLES:
 
-User: "I want vibrant colors for my webpage"
-Agent: "Based on your request for vibrant colors, here are 3 palette sets I recommend:
+User: "Use these colors: primary #FF0000, secondary #00FF00, accent #0000FF, background #FFFFFF"
+Agent: 
+"### Visual Impact Analysis:
+- Your 'banner' layout features prominent header elements. The high-contrast primary (#FF0000) will draw attention but may compete with banner imagery.
+- The green secondary (#00FF00) provides good balance against red, but text contrast ratio is 3.9:1 (below 4.5:1 WCAG standard) - consider adjusting.
+- Accent blue (#0000FF) creates vibrant pop but may clash with red in close proximity.
 
-**1. Electric Dreams**
-- Primary: Electric Blue (#0080FF) - For main elements and headers
-- Secondary: Hot Orange (#FF4500) - For accents and highlights  
-- Accent: Bright Purple (#8A2BE2) - For buttons and call-to-actions
-- Background: Light Gray (#F8F9FA) - Clean backdrop
+### Verification:
+✅ All required colors provided
+✅ Valid hex formats
+⏺️ Generated palette name: 'Bold Contrast'
 
-**2. Neon Nights**
-- Primary: Neon Pink (#FF1493) - For main elements and headers
-- Secondary: Cyan (#00FFFF) - For accents and highlights
-- Accent: Lime Green (#32CD32) - For buttons and call-to-actions  
-- Background: Dark Charcoal (#2D3748) - Modern backdrop
+Should I update to:
+- Primary: #FF0000
+- Secondary: #00FF00
+- Accent: #0000FF
+- Background: #FFFFFF
+- Name: Bold Contrast?"
 
-**3. Tropical Burst**
-- Primary: Coral Red (#FF6B6B) - For main elements and headers
-- Secondary: Turquoise (#40E0D0) - For accents and highlights
-- Accent: Golden Yellow (#FFD93D) - For buttons and call-to-actions
-- Background: Cream (#FFF8DC) - Warm backdrop
+User: "Make background warmer"
+Agent: 
+"### Palette Suggestions:
+1. Sunset Glow:
+   - Primary: #E25822 (warm orange)
+   - Secondary: #6D28D9 (violet contrast)
+   - Accent: #FBBF24 (golden yellow)
+   - Background: #FEF3C7 (warm cream)
 
-Which palette set appeals to you most? Or would you like me to suggest more options?"
+2. Desert Heat:
+   - Primary: #B45309 (rich brown)
+   - Secondary: #F59E0B (amber)
+   - Accent: #DC2626 (terracotta)
+   - Background: #FFEDD5 (peach)
 
-User: "I like Electric Dreams!"
-Agent: "Perfect choice! Electric Dreams will give your webpage a modern, energetic feel. Should I proceed with updating your color palette to:
-- Primary: Electric Blue (#0080FF)
-- Secondary: Hot Orange (#FF4500)  
-- Accent: Bright Purple (#8A2BE2)
-- Background: Light Gray (#F8F9FA)?"
+Which palette better suits your vision? I can also adjust specific colors."
 
+User: "Just change primary to blue"
+Agent:
+"⚠️ Incomplete palette update. To maintain design consistency, we need all 4 colors.
+
+Current palette:
+- Primary: \${currentPrimary}
+- Secondary: \${currentSecondary}
+- Accent: \${currentAccent}
+- Background: \${currentBackground}
+
+Shall I:
+1) Keep current colors but change primary to your blue (#0000FF)?
+2) Suggest complementary colors for a complete new palette?
+3) Adjust only primary and keep others (not recommended)?"
+
+## ABSOLUTE COLOR RULES:
+- NEVER accept incomplete palettes (must have all 4 colors)
+- ALWAYS validate hex format (6-digit #RRGGBB)
+- ALWAYS provide visual impact analysis before confirmation
+- ALWAYS generate name if missing (descriptive, not "Custom Palette 1")
+- ALWAYS verify contrast ratios mention potential issues
+`;
+
+
+export const defaultWorkflowPrompt = `
+## STANDARD WORKFLOW EXAMPLES:
+User: "Change social icons to solid"
+Agent: "should analyse the current design and understand the impact of changing social icons from 'stroked' to 'solid'. based on the it should give recommendations with reasoning."
+User: "chooses what he wants"
+Agent: "summarizes the change and asks for confirmation"
 User: "Yes"
-Agent: [Calls updateDesign with color_palate updates]
-
-## EXAMPLES
-
-User: "Change the style of my social icons to solid"
-Agent: "You want to change the Social Icon Style to Solid. Should I proceed?"
-User: "Yes"
-Agent: [Calls updateDesign with { clientId: "3", designUpdates: { socialIconStyle: "solid" } }]
-
-User: "Set my card style to classic"
-Agent: "You want to set the Card Style to Classic. Should I proceed?"
-User: "Yes"
-Agent: [Calls updateDesign with { clientId: "3", designUpdates: { cardStyle: "classic" } }]
-
-When asking for confirmation, always restate the exact change you intend to make, so that if the user replies 'yes', you know what to update.
-
-REMEMBER: You can ONLY recommend changes to the elements listed above. Everything else is not user-controllable.
+Agent: [Calls updateDesign]
 `;
 
 const getClientDesignTool = tool(
@@ -224,9 +289,9 @@ async function callDesignModel(state) {
 		.filter((m) => m._getType() === "human")
 		.pop();
 
-	if (lastHumanMessage) {
-		console.log("💬 Last human message:", lastHumanMessage.content);
-	}
+	// if (lastHumanMessage) {
+	// 	console.log("💬 Last human message:", lastHumanMessage.content);
+	// }
 
 	// Hybrid clientId extraction (regex only)
 	const clientId = extractClientId(state.messages);
@@ -256,10 +321,19 @@ async function callDesignModel(state) {
 			console.error("Error fetching design or Q&A context:", err);
 		}
 	}
-
+	 let workflowPrompt = defaultWorkflowPrompt;
+	 const userContent = lastHumanMessage?.content?.toLowerCase() || "";
+  
+	if (/color|colour|palette|hue|tone|shade|vibrant|muted|warm|cool/.test(userContent)) {
+		console.log("Injecting color workflow instructions");
+		workflowPrompt = colorPalettePrompt;
+	}
+  
+  // Compose final prompt
+  const fullPrompt = designPrompt + workflowPrompt;
 	// Compose messages: [system prompt, context, ...existing, user]
 	const messages = [
-		{ role: "system", content: designPrompt },
+		{ role: "system", content: fullPrompt },
 		...contextMessages,
 		...state.messages.filter((m) => m._getType() !== "system"),
 	];

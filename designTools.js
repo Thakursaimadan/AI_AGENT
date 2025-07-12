@@ -272,6 +272,8 @@ export const updateDesign = async ({ clientId, designUpdates }) => {
 	}
 };
 
+
+
 export const getQAForClient = async ({ clientId }) => {
 	try {
 		console.log("Fetching QA for client:", clientId);
@@ -327,7 +329,7 @@ export const getQAForClient = async ({ clientId }) => {
 		// console.log("Fetched questions and answers for client:", clientId);
 		// console.log("Questions:", questions);
 		// console.log("Answers:", answers);
-		// console.log("Final answers for client:", clientId, answers);
+		console.log("Final answers for client:", clientId, answers);
 		return {
 			answers: answers,
 		};
